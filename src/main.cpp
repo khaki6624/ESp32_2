@@ -1,17 +1,20 @@
 #include <Arduino.h>
-#include <Relay.h>
-
-Relay relay1(23);
+#include <BoardConfig.h>
 
 void setup()
 {
-    relay1.begin();
+    Serial.begin(115200);
 
-    // روشن شدن رله به مدت 2 ثانیه
-    relay1.pulse(2000);
+    Serial.println(BoardConfig::BOARD_NAME);
+
+    Serial.println(BoardConfig::OUTPUT_COUNT);
+
+    Serial.println(BoardConfig::HAS_WIFI);
+
+    Serial.println(BoardConfig::outputs[0].gpio);
 }
 
 void loop()
 {
-    relay1.update();
+
 }
