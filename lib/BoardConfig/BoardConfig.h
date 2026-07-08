@@ -11,18 +11,18 @@ namespace BoardConfig
         bool activeLow;
     };
 
-    // ===== Board Information =====
+    //==================================================
+    // Hardware Capabilities
+    //==================================================
 
-    constexpr char BOARD_NAME[] = "Central Controller";
+    constexpr bool HAS_WIFI   = true;
+    constexpr bool HAS_RS485  = true;
+    constexpr bool HAS_RF     = true;
+    constexpr bool HAS_IR     = true;
 
-    constexpr uint8_t BOARD_ID = 1;
-
-    constexpr bool HAS_WIFI = true;
-    constexpr bool HAS_RS485 = true;
-    constexpr bool HAS_RF = true;
-    constexpr bool HAS_IR = true;
-
-    // ===== Outputs =====
+    //==================================================
+    // Outputs
+    //==================================================
 
     constexpr uint8_t OUTPUT_COUNT = 16;
 
@@ -46,6 +46,12 @@ namespace BoardConfig
         {33, true},
         {32, true}
     };
+
+    //==================================================
+    // Inputs (Placeholder)
+    //==================================================
+
+    constexpr uint8_t INPUT_COUNT = 0;
 
 }
 
