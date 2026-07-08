@@ -1,11 +1,12 @@
 #include <Arduino.h>
 #include <BoardConfig.h>
+#include <DeviceIdentity.h>
 
 void setup()
 {
     Serial.begin(115200);
 
-    Serial.println(BoardConfig::BOARD_NAME);
+    Serial.println(DeviceIdentity::DEVICE_NAME);
 
     Serial.println(BoardConfig::OUTPUT_COUNT);
 
