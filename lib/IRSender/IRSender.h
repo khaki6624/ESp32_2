@@ -1,35 +1,39 @@
-#ifndef IR_SENDER_H
-#define IR_SENDER_H
+#ifndef IR_RECEIVER_H
+#define IR_RECEIVER_H
 
 #include <Arduino.h>
-#include <IRsend.h>
+#include <IRrecv.h>
 #include <IRremoteESP8266.h>
 #include <IRCommon.h>
 
-class IRSender
+class IRReceiver
 {
 private:
-    // شماره GPIO متصل به LED فرستنده IR
     uint8_t pin;
+    IRrecv receiver;
+    decode_results results;
 
-    // شیء اصلی ارسال IR از کتابخانه IRremoteESP8266
-    IRsend* sender;
+    // آخرین پیام IR خوانده‌نشده
+    IRMessage lastMessage;
+
+    IRProtocol mapProtocol(decode_type_t protocol) const;
 
 public:
-    // سازنده کلاس
-    IRSender(uint8_t gpio);
+    explicit IRReceiver(uint8_t gpio);
 
-    // آزادسازی حافظه
-    ~IRSender();
-
-    // راه‌اندازی فرستنده IR
     void begin();
+    void update();
 
-    // ارسال کد با پروتکل مشخص
-    bool send(const IRMessage& message);
-    bool send(IRProtocol protocol, uint64_t code, uint16_t bits);
+    bool available() const;
 
-    // دریافت شماره GPIO
+    // مشاهده پیام بدون پاک کردن آن
+    const IRMessage& peek() const;
+
+    // خواندن پیام و پاک کردن آن از Driver
+    IRMessage read();
+
+    void clear();
+
     uint8_t getPin() const;
 };
 
