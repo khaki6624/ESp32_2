@@ -6,6 +6,15 @@
 namespace BoardConfig
 {
 
+//==================================================
+// تنظیمات IR
+//==================================================
+
+constexpr bool HAS_IR_RECEIVER = true;
+constexpr bool HAS_IR_SENDER   = true;
+
+constexpr uint8_t IR_RECEIVER_PIN = 4;
+constexpr uint8_t IR_SENDER_PIN   = 5;
 
     //==================================================
 // تنظیمات IR
