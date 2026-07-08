@@ -4,15 +4,7 @@
 #include <Arduino.h>
 #include <IRsend.h>
 #include <IRremoteESP8266.h>
-
-enum class IRProtocol
-{
-    UNKNOWN = 0,
-    NEC,
-    SONY,
-    SAMSUNG,
-    LG
-};
+#include <IRCommon.h>
 
 class IRSender
 {
@@ -34,22 +26,11 @@ public:
     void begin();
 
     // ارسال کد با پروتکل مشخص
+    bool send(const IRMessage& message);
     bool send(IRProtocol protocol, uint64_t code, uint16_t bits);
 
-    // ارسال کد NEC
-    bool sendNEC(uint64_t code, uint16_t bits = 32);
-
-    // ارسال کد Sony
-    bool sendSony(uint64_t code, uint16_t bits = 12);
-
-    // ارسال کد Samsung
-    bool sendSamsung(uint64_t code, uint16_t bits = 32);
-
-    // ارسال کد LG
-    bool sendLG(uint64_t code, uint16_t bits = 28);
-
     // دریافت شماره GPIO
-    uint8_t getPin();
+    uint8_t getPin() const;
 };
 
 #endif

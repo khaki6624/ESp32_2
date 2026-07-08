@@ -1,16 +1,11 @@
 #include "IRReceiver.h"
 
-IRReceiver::IRReceiver(uint8_t gpio)
+IRReceiver::IRReceiver(uint8_t gpio) :
+    pin(gpio),
+    receiver(new IRrecv(gpio)),
+    results{},
+    pendingMessage{}
 {
-    pin = gpio;
-
-    // ساخت شیء گیرنده IR روی پایه مشخص‌شده
-    receiver = new IRrecv(pin);
-
-    availableFlag = false;
-    lastCode = 0;
-    lastBits = 0;
-    lastProtocol = "UNKNOWN";
 }
 
 IRReceiver::~IRReceiver()
@@ -27,8 +22,7 @@ void IRReceiver::begin()
 {
     // فعال‌سازی گیرنده IR
     receiver->enableIRIn();
-
-    availableFlag = false;
+    clear();
 }
 
 void IRReceiver::update()
@@ -36,55 +30,51 @@ void IRReceiver::update()
     // بررسی غیرمسدودکننده برای دریافت سیگنال جدید
     if (receiver->decode(&results))
     {
-        // ذخیره مقدار کد دریافتی
-        lastCode = results.value;
-
-        // ذخیره تعداد بیت‌های کد
-        lastBits = results.bits;
-
-        // ذخیره نام پروتکل
-        lastProtocol = typeToString(results.decode_type);
-
-        // اعلام آماده بودن کد جدید
-        availableFlag = true;
+        pendingMessage.protocol = mapProtocol(results.decode_type);
+        pendingMessage.code = results.value;
+        pendingMessage.bits = results.bits;
+        pendingMessage.valid = true;
 
         // آماده‌سازی گیرنده برای دریافت سیگنال بعدی
         receiver->resume();
     }
 }
 
-bool IRReceiver::available()
+bool IRReceiver::available() const
 {
-    return availableFlag;
+    return pendingMessage.valid;
 }
 
-uint64_t IRReceiver::readCode()
+IRMessage IRReceiver::read()
 {
-    // بعد از خواندن، وضعیت available پاک می‌شود
-    availableFlag = false;
-
-    return lastCode;
-}
-
-uint16_t IRReceiver::getBits()
-{
-    return lastBits;
-}
-
-String IRReceiver::getProtocol()
-{
-    return lastProtocol;
+    // خواندن پیام، آن را از صف تک‌عضوی Driver خارج می‌کند.
+    IRMessage message = pendingMessage;
+    clear();
+    return message;
 }
 
 void IRReceiver::clear()
 {
-    availableFlag = false;
-    lastCode = 0;
-    lastBits = 0;
-    lastProtocol = "UNKNOWN";
+    pendingMessage = IRMessage{};
 }
 
-uint8_t IRReceiver::getPin()
+uint8_t IRReceiver::getPin() const
 {
     return pin;
+}
+
+IRProtocol IRReceiver::mapProtocol(decode_type_t protocol) const
+{
+    switch (protocol)
+    {
+        case NEC:       return IRProtocol::NEC;
+        case SONY:      return IRProtocol::SONY;
+        case SAMSUNG:   return IRProtocol::SAMSUNG;
+        case LG:        return IRProtocol::LG;
+        case PANASONIC: return IRProtocol::PANASONIC;
+        case JVC:       return IRProtocol::JVC;
+        case RC5:       return IRProtocol::RC5;
+        case RC6:       return IRProtocol::RC6;
+        default:        return IRProtocol::UNKNOWN;
+    }
 }
