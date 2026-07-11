@@ -16,6 +16,29 @@ constexpr bool HAS_IR_SENDER   = true;
 constexpr uint8_t IR_RECEIVER_PIN = 4;
 constexpr uint8_t IR_SENDER_PIN   = 5;
 
+//==================================================
+// تنظیمات Driverهای MVP
+//==================================================
+
+constexpr uint8_t INVALID_PIN = 255;
+
+constexpr bool HAS_RF_RECEIVER = false;
+constexpr bool HAS_RF_SENDER = false;
+constexpr bool HAS_BUZZER = false;
+constexpr bool HAS_ULTRASONIC = false;
+constexpr bool HAS_SOIL_MOISTURE = false;
+constexpr bool HAS_TEMPERATURE_HUMIDITY = false;
+
+// TODO: پس از نهایی شدن شماتیک برد، GPIOهای واقعی این Driverها تنظیم شوند.
+constexpr uint8_t RF_RECEIVER_PIN = INVALID_PIN;
+constexpr uint8_t RF_SENDER_PIN = INVALID_PIN;
+constexpr uint8_t BUZZER_PIN = INVALID_PIN;
+constexpr uint8_t ULTRASONIC_TRIGGER_PIN = INVALID_PIN;
+constexpr uint8_t ULTRASONIC_ECHO_PIN = INVALID_PIN;
+
+// TODO: اگر سنسور رطوبت خاک به ورودی آنالوگ دیگری منتقل شد، این Index اصلاح شود.
+constexpr uint8_t SOIL_MOISTURE_ADC_INDEX = 0;
+
     //==================================================
     // ساختار تنظیمات خروجی‌ها
     //==================================================
