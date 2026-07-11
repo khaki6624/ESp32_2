@@ -29,6 +29,7 @@ struct RFMessage
     uint16_t bits = 0;
     uint16_t pulseLength = 0;
     uint8_t repeatCount = 0;
+    uint32_t timestampMs = 0;
     bool valid = false;
 };
 

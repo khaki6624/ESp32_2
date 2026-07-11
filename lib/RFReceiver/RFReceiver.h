@@ -14,7 +14,7 @@ private:
     // آخرین پیام RF خوانده‌نشده
     RFMessage lastMessage;
 
-    RFProtocol mapProtocol(uint8_t protocol) const;
+    static RFProtocol mapProtocol(uint8_t protocol);
 
 public:
     explicit RFReceiver(uint8_t gpio);

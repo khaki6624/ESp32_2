@@ -39,18 +39,23 @@ bool RFSender::send(
     if (protocolNumber == 0 || bits == 0)
         return false;
 
-    // RCSwitch در API ارسال عددی خود unsigned long می‌گیرد؛ روی ESP32 این مقدار ۳۲ بیت است.
-    // برای جلوگیری از ارسال ناقص، کدهای بزرگ‌تر از ۳۲ بیت رد می‌شوند.
+    // کتابخانه فعلی RCSwitch روی ESP32 در API عددی خود فقط unsigned long را ارسال می‌کند.
+    // بنابراین ارسال کدهای بزرگ‌تر از ۳۲ بیت فعلاً پشتیبانی نمی‌شود و برای جلوگیری
+    // از ارسال ناقص، این کدها رد می‌شوند.
+    // TODO: در آینده در صورت استفاده از Driver یا کتابخانه جدید، ارسال کامل ۶۴ بیت فعال شود.
     if (code > 0xFFFFFFFFULL)
         return false;
 
+    // setProtocol پروتکل را از جدول داخلی RCSwitch دوباره بارگذاری می‌کند؛ بنابراین
+    // pulseLength پیش‌فرض همان پروتکل در هر ارسال بازیابی می‌شود.
     sender.setProtocol(protocolNumber);
 
     if (pulseLength > 0)
         sender.setPulseLength(pulseLength);
 
-    if (repeatCount > 0)
-        sender.setRepeatTransmit(repeatCount);
+    // مقدار پیش‌فرض RCSwitch برای repeat برابر ۱۰ است؛ آن را همیشه صریح تنظیم می‌کنیم
+    // تا مقدار ارسال قبلی روی ارسال بعدی باقی نماند.
+    sender.setRepeatTransmit(repeatCount > 0 ? repeatCount : 10);
 
     sender.send(static_cast<unsigned long>(code), bits);
 
@@ -62,7 +67,7 @@ uint8_t RFSender::getPin() const
     return pin;
 }
 
-uint8_t RFSender::mapProtocol(RFProtocol protocol) const
+uint8_t RFSender::mapProtocol(RFProtocol protocol)
 {
     // تبدیل پروتکل داخلی پروژه به شماره پروتکل RCSwitch
     switch (protocol)

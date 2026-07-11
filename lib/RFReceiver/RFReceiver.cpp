@@ -10,7 +10,7 @@ RFReceiver::RFReceiver(uint8_t gpio) :
 void RFReceiver::begin()
 {
     // فعال‌سازی گیرنده RF روی پایه مشخص‌شده
-    receiver.enableReceive(digitalPinToInterrupt(pin));
+    receiver.enableReceive(pin);
 
     // پاک کردن پیام قبلی احتمالی
     clear();
@@ -27,6 +27,7 @@ void RFReceiver::update()
         lastMessage.bits = static_cast<uint16_t>(receiver.getReceivedBitlength());
         lastMessage.pulseLength = static_cast<uint16_t>(receiver.getReceivedDelay());
         lastMessage.repeatCount = 0;
+        lastMessage.timestampMs = millis();
         lastMessage.valid = true;
 
         // آماده‌سازی کتابخانه برای دریافت پیام بعدی
@@ -66,7 +67,7 @@ uint8_t RFReceiver::getPin() const
     return pin;
 }
 
-RFProtocol RFReceiver::mapProtocol(uint8_t protocol) const
+RFProtocol RFReceiver::mapProtocol(uint8_t protocol)
 {
     // تبدیل شماره پروتکل کتابخانه RCSwitch به پروتکل داخلی پروژه
     switch (protocol)

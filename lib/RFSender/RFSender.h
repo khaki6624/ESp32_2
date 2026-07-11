@@ -11,7 +11,7 @@ private:
     uint8_t pin;
     RCSwitch sender;
 
-    uint8_t mapProtocol(RFProtocol protocol) const;
+    static uint8_t mapProtocol(RFProtocol protocol);
 
 public:
     explicit RFSender(uint8_t gpio);
