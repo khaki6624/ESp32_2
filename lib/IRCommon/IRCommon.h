@@ -24,7 +24,8 @@ enum class IRDataType : uint8_t
     RAW
 };
 
-constexpr uint16_t IR_MAX_RAW_LENGTH = 300;
+// Buffer ثابت است؛ Frame بزرگ‌تر برای جلوگیری از بازپخش ناقص رد می‌شود.
+constexpr uint16_t IR_MAX_RAW_LENGTH = 220;
 
 // پیام مستقل از Driver برای جابه‌جایی یک فرمان IR
 struct IRMessage
@@ -40,7 +41,7 @@ struct IRMessage
     uint16_t rawData[IR_MAX_RAW_LENGTH] = {};
     uint16_t rawLength = 0;
 
-    // پارامتر بازپخش Raw؛ فرکانس واقعی از گیرنده اندازه‌گیری نمی‌شود.
+    // گیرنده معمولی Carrier واقعی را اندازه‌گیری نمی‌کند؛ 38kHz پیش‌فرض بازپخش است.
     uint16_t carrierFrequencyKhz = 38;
 
     bool overflow = false;

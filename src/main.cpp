@@ -50,6 +50,22 @@ void printHex64(uint64_t value)
     }
 }
 
+void printRawPreview(const IRMessage& message)
+{
+    if (message.dataType != IRDataType::RAW || message.rawLength == 0)
+        return;
+
+    const uint16_t previewLength = message.rawLength < 8 ? message.rawLength : 8;
+    Serial.print("RawPreview: ");
+    for (uint16_t index = 0; index < previewLength; ++index)
+    {
+        if (index > 0)
+            Serial.print(", ");
+        Serial.print(message.rawData[index]);
+    }
+    Serial.println();
+}
+
 void printMessage(const IRMessage& message)
 {
     Serial.println();
@@ -81,18 +97,7 @@ void printMessage(const IRMessage& message)
     Serial.print("Timestamp : ");
     Serial.println(message.timestampMs);
 
-    if (message.dataType == IRDataType::RAW && message.rawLength > 0)
-    {
-        const uint16_t previewLength = message.rawLength < 8 ? message.rawLength : 8;
-        Serial.print("RawPreview: ");
-        for (uint16_t index = 0; index < previewLength; ++index)
-        {
-            if (index > 0)
-                Serial.print(", ");
-            Serial.print(message.rawData[index]);
-        }
-        Serial.println();
-    }
+    printRawPreview(message);
 
     Serial.println("==============================");
 }

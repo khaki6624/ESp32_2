@@ -23,6 +23,8 @@ void IRReceiver::update()
 
     pendingMessage = IRMessage{};
     pendingMessage.protocol = mapProtocol(results.decode_type);
+    // برای UNKNOWN، code و bits فقط اطلاعات کمکی Debug هستند؛ بازپخش واقعی از
+    // rawData انجام می‌شود و لایه‌های بالاتر نباید برای RAW فقط به این دو تکیه کنند.
     pendingMessage.code = results.value;
     pendingMessage.bits = results.bits;
     pendingMessage.overflow = results.overflow;
@@ -90,10 +92,8 @@ IRProtocol IRReceiver::mapProtocol(decode_type_t protocol)
 bool IRReceiver::copyRawData()
 {
     // rawbuf[0] فاصله پیش از پیام است و بخشی از داده قابل ارسال نیست.
-    if (results.rawbuf == nullptr || results.rawlen <= kStartOffset ||
-        results.rawlen > IR_MAX_RAW_LENGTH)
+    if (results.rawbuf == nullptr || results.rawlen <= kStartOffset)
     {
-        pendingMessage.overflow = results.rawlen > IR_MAX_RAW_LENGTH;
         pendingMessage.rawLength = 0;
         return false;
     }

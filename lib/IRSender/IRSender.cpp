@@ -135,6 +135,7 @@ bool IRSender::sendDecoded(
 
 bool IRSender::sendRawMessage(const IRMessage& message)
 {
+    // پیام ناقص یا overflow شده هرگز به سخت‌افزار ارسال نمی‌شود.
     if (message.dataType != IRDataType::RAW ||
         message.rawLength == 0 ||
         message.rawLength > IR_MAX_RAW_LENGTH ||
