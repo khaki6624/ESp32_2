@@ -1,285 +1,166 @@
 #include <Arduino.h>
+#include <IRCommon.h>
+#include <IRReceiver.h>
+#include <IRSender.h>
 
-// باید قبل از IRremote.hpp تعریف شود.
-#define RAW_BUFFER_LENGTH 750
-#define IR_SEND_PIN 26
-
-#include <IRremote.hpp>
-
-namespace Pins {
+namespace Pins
+{
 constexpr uint8_t BUTTON = 25;
 constexpr uint8_t IR_RECEIVER = 27;
 constexpr uint8_t IR_SENDER = 26;
 }
 
-namespace Timing {
+namespace Timing
+{
 constexpr uint32_t DEBOUNCE_MS = 50;
 }
 
-enum class TestState : uint8_t {
-    WaitingForCaptureTrigger,
-    WaitingForIRSignal,
-    ReadyToSend
+IRReceiver receiver(Pins::IR_RECEIVER);
+IRSender sender(Pins::IR_SENDER);
+IRMessage lastMessage;
+
+enum class TestState : uint8_t
+{
+    WAITING_CAPTURE,
+    WAITING_IR,
+    READY_TO_SEND
 };
 
-struct StoredIRData {
-    IRData decodedData {};
-
-    uint8_t rawData[RAW_BUFFER_LENGTH] {};
-    uint16_t rawLength = 0;
-
-    bool valid = false;
-    bool isRaw = false;
-};
-
-StoredIRData storedIR;
-TestState testState = TestState::WaitingForCaptureTrigger;
-
-bool lastRawButtonState = HIGH;
+TestState testState = TestState::WAITING_CAPTURE;
 bool stableButtonState = HIGH;
-uint32_t lastButtonChangeTime = 0;
+bool lastRawButtonState = HIGH;
+uint32_t lastButtonChangeMs = 0;
 
-bool buttonPressed();
-bool storeReceivedIR();
-void printStoredIR();
-void sendStoredIR();
+void printHex64(uint64_t value)
+{
+    const uint32_t high = static_cast<uint32_t>(value >> 32);
+    const uint32_t low = static_cast<uint32_t>(value);
 
-void setup() {
-    Serial.begin(115200);
+    Serial.print("0x");
+    if (high > 0)
+    {
+        Serial.print(high, HEX);
+        char lowPart[9];
+        snprintf(lowPart, sizeof(lowPart), "%08lX", static_cast<unsigned long>(low));
+        Serial.print(lowPart);
+    }
+    else
+    {
+        Serial.print(low, HEX);
+    }
+}
 
-    pinMode(Pins::BUTTON, INPUT_PULLUP);
-
-    IrReceiver.begin(
-        Pins::IR_RECEIVER,
-        DISABLE_LED_FEEDBACK
-    );
-
-    IrSender.begin(Pins::IR_SENDER);
-
+void printMessage(const IRMessage& message)
+{
     Serial.println();
-    Serial.println("================================");
-    Serial.println("Delsam IR Receiver/Sender Test");
-    Serial.println("================================");
-    Serial.print("IR receiver GPIO: ");
-    Serial.println(Pins::IR_RECEIVER);
+    Serial.println("========== RECEIVED ==========");
 
-    Serial.print("IR sender GPIO: ");
-    Serial.println(Pins::IR_SENDER);
+    Serial.print("Protocol  : ");
+    Serial.println(static_cast<uint8_t>(message.protocol));
 
-    Serial.print("Test button GPIO: ");
-    Serial.println(Pins::BUTTON);
+    Serial.print("DataType  : ");
+    Serial.println(static_cast<uint8_t>(message.dataType));
 
+    Serial.print("Code      : ");
+    printHex64(message.code);
     Serial.println();
-    Serial.println("Step 1: Press the GPIO25 test button.");
-    Serial.println("Step 2: Point the remote at the receiver.");
-    Serial.println("Step 3: Press one remote button.");
-    Serial.println("Step 4: Press GPIO25 again to transmit it.");
-}
 
-void loop() {
-    if (buttonPressed()) {
-        switch (testState) {
-            case TestState::WaitingForCaptureTrigger:
-                storedIR.valid = false;
-                storedIR.isRaw = false;
-                storedIR.rawLength = 0;
+    Serial.print("Bits      : ");
+    Serial.println(message.bits);
 
-                testState = TestState::WaitingForIRSignal;
+    Serial.print("RawLength : ");
+    Serial.println(message.rawLength);
 
-                Serial.println();
-                Serial.println("--------------------------------");
-                Serial.println("Capture mode enabled.");
-                Serial.println("Press one button on the IR remote...");
-                Serial.println("--------------------------------");
-                break;
+    Serial.print("Overflow  : ");
+    Serial.println(message.overflow ? "YES" : "NO");
 
-            case TestState::WaitingForIRSignal:
-                Serial.println();
-                Serial.println("Still waiting for an IR signal...");
-                break;
+    Serial.print("Carrier   : ");
+    Serial.print(message.carrierFrequencyKhz);
+    Serial.println(" kHz");
 
-            case TestState::ReadyToSend:
-                sendStoredIR();
-                break;
+    Serial.print("Timestamp : ");
+    Serial.println(message.timestampMs);
+
+    if (message.dataType == IRDataType::RAW && message.rawLength > 0)
+    {
+        const uint16_t previewLength = message.rawLength < 8 ? message.rawLength : 8;
+        Serial.print("RawPreview: ");
+        for (uint16_t index = 0; index < previewLength; ++index)
+        {
+            if (index > 0)
+                Serial.print(", ");
+            Serial.print(message.rawData[index]);
         }
+        Serial.println();
     }
 
-    if (testState == TestState::WaitingForIRSignal &&
-        IrReceiver.decode()) {
-
-        if (storeReceivedIR()) {
-            testState = TestState::ReadyToSend;
-
-            Serial.println();
-            Serial.println("--------------------------------");
-            Serial.println("IR command stored successfully.");
-            Serial.println("Press GPIO25 to transmit it.");
-            Serial.println("--------------------------------");
-        }
-
-        IrReceiver.resume();
-    }
+    Serial.println("==============================");
 }
 
-bool buttonPressed() {
-    const bool rawState = digitalRead(Pins::BUTTON);
-
-    if (rawState != lastRawButtonState) {
-        lastRawButtonState = rawState;
-        lastButtonChangeTime = millis();
-    }
-
-    if (millis() - lastButtonChangeTime < Timing::DEBOUNCE_MS) {
-        return false;
-    }
-
-    if (rawState == stableButtonState) {
-        return false;
-    }
-
-    stableButtonState = rawState;
-
-    // کلید با INPUT_PULLUP به GND وصل است؛ بنابراین هنگام فشار LOW می‌شود.
-    return stableButtonState == LOW;
-}
-
-bool storeReceivedIR() {
-    const IRData &received = IrReceiver.decodedIRData;
-
-    if (received.flags & IRDATA_FLAGS_WAS_OVERFLOW) {
-        Serial.println("ERROR: IR receive buffer overflow.");
-        Serial.println("Increase RAW_BUFFER_LENGTH.");
-        return false;
-    }
-
-    if (received.flags & IRDATA_FLAGS_IS_REPEAT) {
-        Serial.println("Repeat frame ignored.");
-        return false;
-    }
-
-    if (received.flags & IRDATA_FLAGS_IS_AUTO_REPEAT) {
-        Serial.println("Automatic repeat frame ignored.");
-        return false;
-    }
-
-    if (IrReceiver.irparams.rawlen < 4) {
-        Serial.println("IR frame is too short and was ignored.");
-        return false;
-    }
-
-    storedIR.decodedData = received;
-
-    const decode_type_t protocol = received.protocol;
-
-    storedIR.isRaw =
-        protocol == UNKNOWN ||
-        protocol == PULSE_WIDTH ||
-        protocol == PULSE_DISTANCE;
-
-    if (storedIR.isRaw) {
-        storedIR.rawLength = IrReceiver.irparams.rawlen - 1;
-
-        if (storedIR.rawLength > RAW_BUFFER_LENGTH) {
-            Serial.println("ERROR: Received raw frame is too large.");
-            return false;
-        }
-
-        IrReceiver.compensateAndStoreIRResultInArray(
-            storedIR.rawData
-        );
-    }
-
-    storedIR.decodedData.flags = 0;
-    storedIR.valid = true;
-
-    printStoredIR();
-    return true;
-}
-
-void printStoredIR() {
-    Serial.println();
-    Serial.println("========== IR RECEIVED ==========");
-
-    // خروجی خلاصه استاندارد کتابخانه
-    IrReceiver.printIRResultShort(&Serial);
-
-    Serial.print("Protocol: ");
-    Serial.println(getProtocolString(storedIR.decodedData.protocol));
-
-    Serial.print("Address: 0x");
-    Serial.println(storedIR.decodedData.address, HEX);
-
-    Serial.print("Command: 0x");
-    Serial.println(storedIR.decodedData.command, HEX);
-
-    Serial.print("Raw data: 0x");
-    Serial.println(
-        static_cast<uint64_t>(storedIR.decodedData.decodedRawData),
-        HEX
-    );
-
-    Serial.print("Number of bits: ");
-    Serial.println(storedIR.decodedData.numberOfBits);
-
-    if (storedIR.isRaw) {
-        Serial.print("Stored as RAW timing data. Entries: ");
-        Serial.println(storedIR.rawLength);
-
-        IrReceiver.printIRResultRawFormatted(
-            &Serial,
-            true
-        );
-    } else {
-        Serial.println("Stored as a recognized IR protocol.");
-
-        Serial.println("Suggested send command:");
-        IrReceiver.printIRSendUsage(&Serial);
-    }
-
-    Serial.println("=================================");
-}
-
-void sendStoredIR() {
-    if (!storedIR.valid) {
-        Serial.println("No IR command has been captured.");
+void handleButtonPress()
+{
+    if (testState == TestState::WAITING_CAPTURE)
+    {
+        receiver.clear();
+        Serial.println();
+        Serial.println("Waiting for IR...");
+        testState = TestState::WAITING_IR;
         return;
     }
 
-    Serial.println();
-    Serial.println("Stopping receiver...");
-    IrReceiver.stop();
+    if (testState == TestState::READY_TO_SEND)
+    {
+        Serial.println();
+        Serial.println("Sending...");
+        Serial.println(sender.send(lastMessage) ? "SUCCESS" : "FAILED");
+        testState = TestState::WAITING_CAPTURE;
+        Serial.println("Press button to Capture.");
+    }
+}
 
-    Serial.println("Transmitting stored IR command...");
-    Serial.flush();
+void updateButton()
+{
+    const bool rawButtonState = digitalRead(Pins::BUTTON);
+    const uint32_t now = millis();
 
-    if (storedIR.isRaw) {
-        // برای پروتکل ناشناخته، فرکانس متداول 38 کیلوهرتز فرض شده است.
-        IrSender.sendRaw(
-            storedIR.rawData,
-            storedIR.rawLength,
-            38
-        );
-
-        Serial.print("RAW IR sent. Timing entries: ");
-        Serial.println(storedIR.rawLength);
-    } else {
-        // پروتکل، آدرس و فرمان ذخیره‌شده را مجدداً ارسال می‌کند.
-        IrSender.write(&storedIR.decodedData);
-
-        Serial.print("Protocol sent: ");
-        Serial.println(
-            getProtocolString(storedIR.decodedData.protocol)
-        );
-
-        Serial.print("Address: 0x");
-        Serial.println(storedIR.decodedData.address, HEX);
-
-        Serial.print("Command: 0x");
-        Serial.println(storedIR.decodedData.command, HEX);
+    if (rawButtonState != lastRawButtonState)
+    {
+        lastRawButtonState = rawButtonState;
+        lastButtonChangeMs = now;
     }
 
-    Serial.println("Transmission completed.");
+    if (rawButtonState != stableButtonState &&
+        now - lastButtonChangeMs >= Timing::DEBOUNCE_MS)
+    {
+        stableButtonState = rawButtonState;
+        if (stableButtonState == LOW)
+            handleButtonPress();
+    }
+}
 
-    IrReceiver.start();
-    Serial.println("Receiver restarted.");
+void setup()
+{
+    Serial.begin(115200);
+    pinMode(Pins::BUTTON, INPUT_PULLUP);
+
+    receiver.begin();
+    sender.begin();
+
+    Serial.println();
+    Serial.println("========== DELSAM IR TEST ==========");
+    Serial.println("Press button to Capture.");
+}
+
+void loop()
+{
+    updateButton();
+    receiver.update();
+
+    if (testState == TestState::WAITING_IR && receiver.available())
+    {
+        lastMessage = receiver.read();
+        printMessage(lastMessage);
+        testState = TestState::READY_TO_SEND;
+        Serial.println("Press button to Send.");
+    }
 }

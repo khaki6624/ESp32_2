@@ -10,17 +10,17 @@ class IRReceiver
 {
 private:
     uint8_t pin;
-    IRrecv* receiver;
+    IRrecv receiver;
     decode_results results;
 
-    // فقط پیام خوانده‌نشده در RAM نگه‌داری می‌شود.
+    // پیام جدید، پیام خوانده‌نشده قبلی را در Buffer تک‌عضوی جایگزین می‌کند.
     IRMessage pendingMessage;
 
-    IRProtocol mapProtocol(decode_type_t protocol) const;
+    static IRProtocol mapProtocol(decode_type_t protocol);
+    bool copyRawData();
 
 public:
     explicit IRReceiver(uint8_t gpio);
-    ~IRReceiver();
 
     IRReceiver(const IRReceiver&) = delete;
     IRReceiver& operator=(const IRReceiver&) = delete;
@@ -28,6 +28,7 @@ public:
     void begin();
     void update();
     bool available() const;
+    const IRMessage& peek() const;
     IRMessage read();
     void clear();
     uint8_t getPin() const;

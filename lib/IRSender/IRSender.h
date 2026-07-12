@@ -15,11 +15,13 @@ private:
     IRsend sender;
     bool initialized = false;
 
-    bool sendProtocol(
+    bool sendDecoded(
         IRProtocol protocol,
         uint64_t code,
         uint16_t bits
     );
+    bool sendDecoded(const IRMessage& message);
+    bool sendRawMessage(const IRMessage& message);
 
 public:
     explicit IRSender(uint8_t gpio);
