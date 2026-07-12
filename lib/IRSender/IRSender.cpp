@@ -10,10 +10,14 @@ void IRSender::begin()
 {
     // فعال‌سازی فرستنده IR روی پایه مشخص‌شده
     sender.begin();
+    initialized = true;
 }
 
 bool IRSender::send(const IRMessage& message)
 {
+    if (!initialized)
+        return false;
+
     if (!message.valid)
         return false;
 
@@ -26,6 +30,9 @@ bool IRSender::send(
     uint16_t bits
 )
 {
+    if (!initialized)
+        return false;
+
     if (bits == 0)
         return false;
 

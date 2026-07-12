@@ -5,12 +5,15 @@
 #include <IRsend.h>
 #include <IRCommon.h>
 
-// Driver فرستنده IR؛ این کلاس فقط پیام‌های IR را ارسال می‌کند.
+// این کلاس فقط Driver ارسال IR است و هیچ قابلیت Receive ندارد.
+// این Driver هیچ Queue، Retry، Storage، Event یا Notification را مدیریت نمی‌کند.
+// begin() باید قبل از اولین send() فراخوانی شود.
 class IRSender
 {
 private:
     uint8_t pin;
     IRsend sender;
+    bool initialized = false;
 
     bool sendProtocol(
         IRProtocol protocol,
