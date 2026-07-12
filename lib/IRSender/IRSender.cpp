@@ -1,99 +1,84 @@
-#include "IRReceiver.h"
+#include "IRSender.h"
 
-IRReceiver::IRReceiver(uint8_t gpio) :
+IRSender::IRSender(uint8_t gpio) :
     pin(gpio),
-    receiver(gpio),
-    results{},
-    lastMessage{}
+    sender(gpio)
 {
 }
 
-void IRReceiver::begin()
+void IRSender::begin()
 {
-    // فعال‌سازی گیرنده IR
-    receiver.enableIRIn();
-
-    // پاک کردن پیام قبلی احتمالی
-    clear();
+    // فعال‌سازی فرستنده IR روی پایه مشخص‌شده
+    sender.begin();
 }
 
-void IRReceiver::update()
+bool IRSender::send(const IRMessage& message)
 {
-    // بررسی غیرمسدودکننده برای دریافت سیگنال جدید
-    if (receiver.decode(&results))
-    {
-        lastMessage.protocol = mapProtocol(results.decode_type);
-        lastMessage.code = results.value;
-        lastMessage.bits = results.bits;
-        lastMessage.valid = true;
+    if (!message.valid)
+        return false;
 
-        // آماده‌سازی گیرنده برای دریافت سیگنال بعدی
-        receiver.resume();
-    }
+    return send(message.protocol, message.code, message.bits);
 }
 
-bool IRReceiver::available() const
+bool IRSender::send(
+    IRProtocol protocol,
+    uint64_t code,
+    uint16_t bits
+)
 {
-    return lastMessage.valid;
+    if (bits == 0)
+        return false;
+
+    return sendProtocol(protocol, code, bits);
 }
 
-const IRMessage& IRReceiver::peek() const
-{
-    // مشاهده پیام بدون مصرف کردن آن
-    return lastMessage;
-}
-
-IRMessage IRReceiver::read()
-{
-    // خواندن پیام، آن را از Driver خارج می‌کند
-    IRMessage message = lastMessage;
-
-    clear();
-
-    return message;
-}
-
-void IRReceiver::clear()
-{
-    // بازنشانی پیام به حالت نامعتبر
-    lastMessage = IRMessage{};
-}
-
-uint8_t IRReceiver::getPin() const
+uint8_t IRSender::getPin() const
 {
     return pin;
 }
 
-IRProtocol IRReceiver::mapProtocol(decode_type_t protocol) const
+bool IRSender::sendProtocol(
+    IRProtocol protocol,
+    uint64_t code,
+    uint16_t bits
+)
 {
-    // تبدیل پروتکل کتابخانه IRremoteESP8266 به پروتکل داخلی پروژه
+    // تبدیل پروتکل داخلی پروژه به تابع ارسال متناظر در IRremoteESP8266
     switch (protocol)
     {
-        case NEC:
-            return IRProtocol::NEC;
+        case IRProtocol::NEC:
+            sender.sendNEC(code, bits);
+            return true;
 
-        case SONY:
-            return IRProtocol::SONY;
+        case IRProtocol::SONY:
+            sender.sendSony(code, bits);
+            return true;
 
-        case SAMSUNG:
-            return IRProtocol::SAMSUNG;
+        case IRProtocol::SAMSUNG:
+            sender.sendSAMSUNG(code, bits);
+            return true;
 
-        case LG:
-            return IRProtocol::LG;
+        case IRProtocol::LG:
+            sender.sendLG(code, bits);
+            return true;
 
-        case PANASONIC:
-            return IRProtocol::PANASONIC;
+        case IRProtocol::PANASONIC:
+            sender.sendPanasonic64(code, bits);
+            return true;
 
-        case JVC:
-            return IRProtocol::JVC;
+        case IRProtocol::JVC:
+            sender.sendJVC(code, bits);
+            return true;
 
-        case RC5:
-            return IRProtocol::RC5;
+        case IRProtocol::RC5:
+            sender.sendRC5(code, bits);
+            return true;
 
-        case RC6:
-            return IRProtocol::RC6;
+        case IRProtocol::RC6:
+            sender.sendRC6(code, bits);
+            return true;
 
         default:
-            return IRProtocol::UNKNOWN;
+            return false;
     }
 }
