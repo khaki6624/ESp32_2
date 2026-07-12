@@ -11,6 +11,7 @@ UltrasonicSensor::UltrasonicSensor(
     interval(intervalMs),
     timeout(timeoutUs),
     lastMeasureTime(0),
+    lastMeasurementTimeMs(0),
     distanceCentimeters(0.0f),
     availableFlag(false),
     validFlag(false)
@@ -24,6 +25,8 @@ void UltrasonicSensor::begin()
 
     digitalWrite(triggerPin, LOW);
     clear();
+
+    // رفتار فعلی حفظ می‌شود: اولین اندازه‌گیری پس از سپری شدن interval انجام می‌شود.
     lastMeasureTime = millis();
 }
 
@@ -35,6 +38,7 @@ void UltrasonicSensor::update()
         return;
 
     lastMeasureTime = now;
+    lastMeasurementTimeMs = now;
 
     digitalWrite(triggerPin, LOW);
     // این مکث بسیار کوتاه فقط برای شکل‌دهی پالس سخت‌افزاری Trigger است و delay منطقی طولانی نیست.
@@ -43,7 +47,9 @@ void UltrasonicSensor::update()
     delayMicroseconds(10);
     digitalWrite(triggerPin, LOW);
 
-    // pulseIn ذاتاً Blocking است؛ Timeout محدود مانع گیر کردن طولانی loop می‌شود.
+    // pulseIn ذاتاً Blocking است؛ timeoutUs زمان Blocking را محدود می‌کند و این پیاده‌سازی
+    // برای MVP پذیرفته شده است. برای Non-Blocking کامل در آینده باید Driver مبتنی بر
+    // Interrupt یا State Machine جایگزین شود.
     uint32_t duration = pulseIn(echoPin, HIGH, timeout);
 
     if (duration == 0)
@@ -56,7 +62,7 @@ void UltrasonicSensor::update()
 
     float centimeters = (static_cast<float>(duration) * 0.0343f) / 2.0f;
 
-    if (centimeters <= 0.0f || centimeters > 600.0f)
+    if (centimeters <= 0.0f || !isfinite(centimeters))
     {
         distanceCentimeters = 0.0f;
         validFlag = false;
@@ -90,6 +96,11 @@ float UltrasonicSensor::peekCentimeters() const
 bool UltrasonicSensor::isValid() const
 {
     return validFlag;
+}
+
+uint32_t UltrasonicSensor::getLastMeasurementTime() const
+{
+    return lastMeasurementTimeMs;
 }
 
 void UltrasonicSensor::clear()

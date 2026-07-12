@@ -11,6 +11,7 @@ private:
     uint32_t interval;
     uint32_t timeout;
     uint32_t lastMeasureTime;
+    uint32_t lastMeasurementTimeMs;
     float distanceCentimeters;
     bool availableFlag;
     bool validFlag;
@@ -32,6 +33,8 @@ public:
     float peekCentimeters() const;
 
     bool isValid() const;
+
+    uint32_t getLastMeasurementTime() const;
 
     void clear();
 
