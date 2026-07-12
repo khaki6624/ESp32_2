@@ -10,7 +10,8 @@ Buzzer::Buzzer(uint8_t gpio, bool activeHigh) :
     completedBeeps(0),
     onDuration(0),
     offDuration(0),
-    phaseStart(0)
+    phaseStart(0),
+    lastActivityMs(0)
 {
 }
 
@@ -101,6 +102,16 @@ bool Buzzer::isBusy() const
     return patternActive;
 }
 
+bool Buzzer::isIdle() const
+{
+    return !patternActive;
+}
+
+uint32_t Buzzer::getLastActivityTime() const
+{
+    return lastActivityMs;
+}
+
 void Buzzer::stop()
 {
     patternActive = false;
@@ -117,4 +128,5 @@ void Buzzer::writeState(bool enabled)
 {
     digitalWrite(pin, enabled == activeHigh ? HIGH : LOW);
     state = enabled;
+    lastActivityMs = millis();
 }

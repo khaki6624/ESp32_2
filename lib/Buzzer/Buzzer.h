@@ -3,6 +3,9 @@
 
 #include <Arduino.h>
 
+// Driver عمومی سخت‌افزار Buzzer.
+// این کلاس معنی Patternها را نمی‌داند، Event تولید نمی‌کند، Learn Mode را مدیریت نمی‌کند
+// و Notification ارسال نمی‌کند؛ فقط امکان اجرای Patternهای عمومی روی Buzzer را فراهم می‌کند.
 class Buzzer
 {
 private:
@@ -17,6 +20,7 @@ private:
     uint32_t onDuration;
     uint32_t offDuration;
     uint32_t phaseStart;
+    uint32_t lastActivityMs;
 
     void writeState(bool enabled);
 
@@ -43,6 +47,9 @@ public:
     );
 
     bool isBusy() const;
+    bool isIdle() const;
+
+    uint32_t getLastActivityTime() const;
 
     void stop();
 
