@@ -14,22 +14,25 @@ SoilMoistureSensor::SoilMoistureSensor(
     wetThreshold(wetThresholdPercent),
     percent(0.0f),
     rawValue(0),
-    validFlag(false)
+    validFlag(false),
+    lastUpdateTimeMs(0)
 {
 }
 
 void SoilMoistureSensor::begin()
 {
-    // AnalogInput مالک خواندن ADC است؛ این Driver فقط مقدار آن را تفسیر می‌کند.
-    analogInput.begin();
-    update();
+    // AnalogInput باید توسط مالک بیرونی راه‌اندازی شده باشد؛ این Driver فقط مقدار فعلی را تفسیر می‌کند.
+    rawValue = analogInput.getRaw();
+    calculatePercent();
+    lastUpdateTimeMs = millis();
 }
 
 void SoilMoistureSensor::update()
 {
-    analogInput.update();
+    // مالک بیرونی باید پیش از این متد AnalogInput::update() را صدا زده باشد.
     rawValue = analogInput.getRaw();
     calculatePercent();
+    lastUpdateTimeMs = millis();
 }
 
 float SoilMoistureSensor::getPercent() const
@@ -55,6 +58,11 @@ bool SoilMoistureSensor::isWet() const
 bool SoilMoistureSensor::isValid() const
 {
     return validFlag;
+}
+
+uint32_t SoilMoistureSensor::getLastUpdateTime() const
+{
+    return lastUpdateTimeMs;
 }
 
 void SoilMoistureSensor::setCalibration(uint16_t newDryValue, uint16_t newWetValue)

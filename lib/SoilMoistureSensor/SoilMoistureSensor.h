@@ -4,6 +4,10 @@
 #include <Arduino.h>
 #include <AnalogInput.h>
 
+// SoilMoistureSensor مالک AnalogInput نیست.
+// begin() و update() مربوط به AnalogInput باید توسط مالک بیرونی، مانند InputManager، مدیریت شوند.
+// این کلاس فقط مقدار خام فعلی AnalogInput را به درصد رطوبت خاک تبدیل می‌کند.
+// این کلاس آبیاری، Rule، Event یا Storage را مدیریت نمی‌کند.
 class SoilMoistureSensor
 {
 private:
@@ -15,6 +19,7 @@ private:
     float percent;
     uint16_t rawValue;
     bool validFlag;
+    uint32_t lastUpdateTimeMs;
 
     void calculatePercent();
     float clampPercent(float value) const;
@@ -37,6 +42,7 @@ public:
     bool isDry() const;
     bool isWet() const;
     bool isValid() const;
+    uint32_t getLastUpdateTime() const;
 
     void setCalibration(
         uint16_t dryValue,
