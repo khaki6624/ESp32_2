@@ -2,14 +2,14 @@
 #define RULE_ACTION_STEP_H
 
 #include <AutomationCommon.h>
-#include <Command.h>
+#include <AutomationCommand.h>
 
 struct RuleActionStep
 {
     AutomationStepIndex stepIndex;
     RuleBranch branch;
-    Command command;
-    // تأخیر پیش از Action این Step است؛ مستقل از Command.durationMs باقی می‌ماند
+    AutomationCommand command;
+    // تأخیر پیش از Action این Step است؛ مستقل از command.durationMs باقی می‌ماند
     // و نباید جایگزین یا با Duration فرمان Merge شود.
     uint32_t delayBeforeMs;
     bool enabled;
@@ -24,7 +24,7 @@ struct RuleActionStep
         if(!command.isValid()) return AutomationValidationResult::INVALID_COMMAND;
         return AutomationValidationResult::VALID;
     }
-    bool setCommand(const Command& value)
+    bool setCommand(const AutomationCommand& value)
     { if(!value.isValid()) return false;command=value;return true; }
     void clear() { *this=RuleActionStep{}; }
 };

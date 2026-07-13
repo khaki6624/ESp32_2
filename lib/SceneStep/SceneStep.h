@@ -2,13 +2,13 @@
 #define SCENE_STEP_H
 
 #include <AutomationCommon.h>
-#include <Command.h>
+#include <AutomationCommand.h>
 
 struct SceneStep
 {
     AutomationStepIndex stepIndex;
-    Command command;
-    // فاصله پس از این Step و پیش از Step بعدی است؛ با Command.durationMs که مدت
+    AutomationCommand command;
+    // فاصله پس از این Step و پیش از Step بعدی است؛ با command.durationMs که مدت
     // Action موقت و Restore را بیان می‌کند متفاوت است و نباید با آن ادغام شود.
     uint32_t delayAfterMs;
     bool enabled;
@@ -21,7 +21,7 @@ struct SceneStep
         if(!command.isValid()) return AutomationValidationResult::INVALID_COMMAND;
         return AutomationValidationResult::VALID;
     }
-    bool setCommand(const Command& value)
+    bool setCommand(const AutomationCommand& value)
     { if(!value.isValid()) return false;command=value;return true; }
     void clear() { *this=SceneStep{}; }
 };

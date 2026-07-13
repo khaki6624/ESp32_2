@@ -2,7 +2,7 @@
 #define SCHEDULED_COMMAND_H
 
 #include <AutomationCommon.h>
-#include <Command.h>
+#include <AutomationCommand.h>
 
 // نسخه اول Command و Trigger زمان‌بندی را برای سادگی در یک Value Object نگه می‌دارد
 // و هیچ اجرای زمان‌بندی ندارد. در آینده می‌توان Trigger و Action را بدون انتقال
@@ -11,7 +11,7 @@ struct ScheduledCommand
 {
     ScheduleId scheduleId;
     AutomationStepIndex commandIndex;
-    Command command;
+    AutomationCommand command;
     ScheduleMode mode;
     AutomationDate date;
     AutomationTime time;
@@ -64,7 +64,7 @@ struct ScheduledCommand
             default: return AutomationValidationResult::INVALID_SCHEDULE_MODE;
         }
     }
-    bool setCommand(const Command& value)
+    bool setCommand(const AutomationCommand& value)
     { if(!value.isValid()) return false;command=value;return true; }
     void clear() { *this=ScheduledCommand{}; }
 };
