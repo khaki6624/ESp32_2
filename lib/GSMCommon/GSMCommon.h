@@ -6,6 +6,21 @@
 constexpr uint8_t GSM_PHONE_NUMBER_LENGTH = 24;
 constexpr uint16_t GSM_SMS_TEXT_LENGTH = 161;
 constexpr uint8_t GSM_TIMESTAMP_LENGTH = 24;
+constexpr uint8_t GSM_OPERATOR_NAME_LENGTH = 32;
+
+struct GSMSignal
+{
+    int8_t rssi = -1;
+    int8_t ber = -1;
+    bool valid = false;
+};
+
+struct SMSStorageStatus
+{
+    uint16_t used = 0;
+    uint16_t total = 0;
+    bool valid = false;
+};
 
 enum class GSMState : uint8_t
 {

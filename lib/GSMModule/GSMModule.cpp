@@ -16,16 +16,21 @@ GSMModule::GSMModule(
     state(GSMState::OFF),
     networkStatus(GSMNetworkStatus::UNKNOWN),
     callState(GSMCallState::IDLE),
-    signalQuality(-1),
+    signal{},
+    smsStorageStatus{},
+    operatorName{},
     beginRequested(false),
     resetRequested(false),
     commandActive(false),
     waitingForPrompt(false),
     smsHeaderReceived(false),
     simReady(false),
+    atReady(false),
+    echoDisabled(false),
     stateStartedMs(0),
     commandStartedMs(0),
     lastNetworkRequestMs(0),
+    lastATRequestMs(0),
     commandQueue{},
     commandHead(0),
     commandTail(0),
@@ -36,6 +41,9 @@ GSMModule::GSMModule(
     smsTail(0),
     smsCount(0),
     incomingSMS{},
+    pendingSMSIndexes{},
+    pendingSMSCount(0),
+    smsQueueOverflow(false),
     pendingCall{},
     pendingCallAvailable(false),
     lineBuffer{},
@@ -54,21 +62,11 @@ void GSMModule::update()
     readSerial();
 
     if (resetRequested)
-    {
-        resetRequested = false;
-        beginRequested = true;
-        clearCommandQueue();
-        commandActive = false;
-        waitingForPrompt = false;
-        lineLength = 0;
-        networkStatus = GSMNetworkStatus::UNKNOWN;
-        signalQuality = -1;
-        callState = GSMCallState::IDLE;
-        simReady = false;
-        setState(GSMState::OFF);
-    }
+        performReset();
 
     processStateMachine();
+
+    retryPendingSMS();
 
     if (commandActive && millis() - commandStartedMs >= COMMAND_TIMEOUT_MS)
     {
@@ -82,6 +80,39 @@ void GSMModule::update()
 void GSMModule::reset()
 {
     resetRequested = true;
+}
+
+void GSMModule::performReset()
+{
+    // فقط State داخلی Driver پاک می‌شود؛ Reset سخت‌افزاری SIM800C انجام نمی‌شود.
+    resetRequested = false;
+    beginRequested = true;
+    clearCommandQueue();
+    commandActive = false;
+    waitingForPrompt = false;
+    memset(lineBuffer, 0, sizeof(lineBuffer));
+    lineLength = 0;
+    networkStatus = GSMNetworkStatus::UNKNOWN;
+    signal = GSMSignal{};
+    smsStorageStatus = SMSStorageStatus{};
+    memset(operatorName, 0, sizeof(operatorName));
+    callState = GSMCallState::IDLE;
+    simReady = false;
+    atReady = false;
+    echoDisabled = false;
+    clearSMS();
+    incomingSMS = SMSMessage{};
+    pendingCall = GSMCallInfo{};
+    pendingCallAvailable = false;
+    smsHeaderReceived = false;
+    memset(pendingSMSIndexes, 0, sizeof(pendingSMSIndexes));
+    pendingSMSCount = 0;
+    smsQueueOverflow = false;
+    activeCommand = ATCommand{};
+    commandStartedMs = 0;
+    lastNetworkRequestMs = 0;
+    lastATRequestMs = 0;
+    setState(GSMState::OFF);
 }
 
 bool GSMModule::isReady() const
@@ -237,19 +268,61 @@ bool GSMModule::requestNetworkStatus()
     }
 
     // وضعیت ثبت شبکه و نام اپراتور در یک درخواست غیرمسدودکننده صف می‌شوند.
-    enqueueCommand(CommandType::NETWORK_STATUS, "AT+CREG?");
-    enqueueCommand(CommandType::OPERATOR_STATUS, "AT+COPS?");
-    return true;
+    return enqueueCommandPair(
+        CommandType::NETWORK_STATUS,
+        "AT+CREG?",
+        CommandType::OPERATOR_STATUS,
+        "AT+COPS?"
+    );
+}
+
+bool GSMModule::requestSMSStorageStatus()
+{
+    return isReady() && enqueueCommand(CommandType::SMS_STORAGE_STATUS, "AT+CPMS?");
+}
+
+const char* GSMModule::getOperator() const
+{
+    // اشاره‌گر فقط به Buffer داخلی و با مالکیت خود GSMModule است.
+    return operatorName;
+}
+
+const GSMSignal& GSMModule::getSignal() const
+{
+    return signal;
 }
 
 int8_t GSMModule::getSignalQuality() const
 {
-    return signalQuality;
+    // فقط برای سازگاری API قدیمی؛ مقدار RSSI را برمی‌گرداند.
+    return signal.rssi;
 }
 
 GSMNetworkStatus GSMModule::getNetworkStatus() const
 {
     return networkStatus;
+}
+
+const SMSStorageStatus& GSMModule::getSMSStorageStatus() const
+{
+    return smsStorageStatus;
+}
+
+bool GSMModule::isSMSStorageFull() const
+{
+    // فقط وضعیت را گزارش می‌کند و هیچ Cleanup انجام نمی‌دهد.
+    return smsStorageStatus.valid && smsStorageStatus.total > 0 &&
+           smsStorageStatus.used >= smsStorageStatus.total;
+}
+
+bool GSMModule::hasSMSQueueOverflow() const
+{
+    return smsQueueOverflow;
+}
+
+void GSMModule::clearSMSQueueOverflow()
+{
+    smsQueueOverflow = false;
 }
 
 bool GSMModule::enqueueCommand(
@@ -275,6 +348,35 @@ bool GSMModule::enqueueCommand(
     commandTail = (commandTail + 1) % COMMAND_QUEUE_CAPACITY;
     ++commandCount;
     return true;
+}
+
+bool GSMModule::enqueueCommandPair(
+    CommandType firstType,
+    const char* firstCommand,
+    CommandType secondType,
+    const char* secondCommand
+)
+{
+    // فرمان‌های چندتایی Initialization باید یا کامل وارد Queue شوند یا اصلاً نشوند.
+    if (commandCount > COMMAND_QUEUE_CAPACITY - 2)
+        return false;
+
+    const uint8_t originalTail = commandTail;
+    const uint8_t originalCount = commandCount;
+    if (enqueueCommand(firstType, firstCommand) &&
+        enqueueCommand(secondType, secondCommand))
+    {
+        return true;
+    }
+
+    while (commandCount > originalCount)
+    {
+        commandTail = (commandTail + COMMAND_QUEUE_CAPACITY - 1) % COMMAND_QUEUE_CAPACITY;
+        commandQueue[commandTail] = ATCommand{};
+        --commandCount;
+    }
+    commandTail = originalTail;
+    return false;
 }
 
 void GSMModule::clearCommandQueue()
@@ -320,10 +422,26 @@ void GSMModule::finishCommand(bool success)
 
     if (!success)
     {
+        // خطای موقت AT یا شبکه نباید Driver را وارد ERROR دائمی کند.
+        if (state == GSMState::WAIT_AT &&
+            (completedType == CommandType::AT || completedType == CommandType::ECHO_OFF))
+        {
+            return;
+        }
+        if (state == GSMState::WAIT_NETWORK &&
+            completedType == CommandType::NETWORK_STATUS)
+        {
+            return;
+        }
         if (state != GSMState::READY)
             setState(GSMState::ERROR);
         return;
     }
+
+    if (completedType == CommandType::AT)
+        atReady = true;
+    else if (completedType == CommandType::ECHO_OFF)
+        echoDisabled = true;
 
     if (completedType == CommandType::SIM_STATUS && !simReady)
     {
@@ -403,6 +521,12 @@ void GSMModule::processURC(const char* line)
             const uint16_t index = static_cast<uint16_t>(atoi(comma + 1));
             if (index > 0)
             {
+                if (smsCount >= SMS_QUEUE_CAPACITY || pendingSMSCount > 0)
+                {
+                    smsQueueOverflow = true;
+                    rememberPendingSMS(index);
+                    return;
+                }
                 char command[32];
                 snprintf(command, sizeof(command), "AT+CMGR=%u", index);
                 enqueueCommand(CommandType::READ_SMS, command, nullptr, index);
@@ -427,20 +551,27 @@ void GSMModule::processURC(const char* line)
     }
     else if (strncmp(line, "+CREG:", 6) == 0)
     {
-        parseNetworkStatus(line);
+        if (!commandActive || activeCommand.type != CommandType::NETWORK_STATUS)
+            parseNetworkStatus(line);
     }
-    else if (strncmp(line, "+COPS:", 6) == 0)
-    {
-        // پاسخ اپراتور در لایه Driver مصرف می‌شود و تصمیم تجاری روی آن انجام نمی‌شود.
-    }
+
+    // Driver درباره Whitelist یا حذف پیام تبلیغاتی تصمیمی نمی‌گیرد.
 }
 
 void GSMModule::processCommandResponse(const char* line)
 {
-    if (strncmp(line, "+CREG:", 6) == 0)
+    if (activeCommand.type == CommandType::NETWORK_STATUS &&
+        strncmp(line, "+CREG:", 6) == 0)
         parseNetworkStatus(line);
-    else if (strncmp(line, "+CSQ:", 5) == 0)
+    else if (activeCommand.type == CommandType::SIGNAL_QUALITY &&
+             strncmp(line, "+CSQ:", 5) == 0)
         parseSignalQuality(line);
+    else if (activeCommand.type == CommandType::OPERATOR_STATUS &&
+             strncmp(line, "+COPS:", 6) == 0)
+        parseOperator(line);
+    else if (activeCommand.type == CommandType::SMS_STORAGE_STATUS &&
+             strncmp(line, "+CPMS:", 6) == 0)
+        parseSMSStorageStatus(line);
     else if (activeCommand.type == CommandType::SIM_STATUS &&
              strcmp(line, "+CPIN: READY") == 0)
     {
@@ -488,9 +619,19 @@ void GSMModule::processStateMachine()
         return;
     }
 
-    if (state == GSMState::WAIT_AT && !commandActive && commandCount == 0)
+    if (state == GSMState::WAIT_AT && !commandActive && commandCount == 0 &&
+        atReady && echoDisabled)
     {
+        // مرحله WAIT_AT فقط پس از موفقیت AT و ATE0 کامل می‌شود.
         setState(GSMState::WAIT_SIM);
+        requestInitializationCommand();
+        return;
+    }
+
+
+    if (state == GSMState::WAIT_AT && !commandActive && commandCount == 0 &&
+        (!atReady || !echoDisabled) && now - lastATRequestMs >= AT_RETRY_MS)
+    {
         requestInitializationCommand();
         return;
     }
@@ -521,8 +662,15 @@ void GSMModule::requestInitializationCommand()
     switch (state)
     {
         case GSMState::WAIT_AT:
-            enqueueCommand(CommandType::AT, "AT");
-            enqueueCommand(CommandType::ECHO_OFF, "ATE0");
+            if (enqueueCommandPair(
+                    CommandType::AT,
+                    "AT",
+                    CommandType::ECHO_OFF,
+                    "ATE0"
+                ))
+            {
+                lastATRequestMs = millis();
+            }
             break;
 
         case GSMState::WAIT_SIM:
@@ -571,8 +719,46 @@ void GSMModule::parseNetworkStatus(const char* line)
 
 void GSMModule::parseSignalQuality(const char* line)
 {
-    const int quality = atoi(line + 5);
-    signalQuality = quality >= 0 && quality <= 31 ? static_cast<int8_t>(quality) : -1;
+    signal = GSMSignal{};
+    int rssi = -1;
+    int ber = -1;
+    if (line == nullptr || sscanf(line, "+CSQ: %d,%d", &rssi, &ber) != 2)
+        return;
+
+    GSMSignal parsed;
+    parsed.rssi = rssi >= 0 && rssi <= 31 ? static_cast<int8_t>(rssi) : -1;
+    parsed.ber = ber >= 0 && ber <= 7 ? static_cast<int8_t>(ber) : -1;
+    parsed.valid = true;
+    signal = parsed;
+}
+
+void GSMModule::parseOperator(const char* line)
+{
+    char parsed[GSM_OPERATOR_NAME_LENGTH] = {};
+    if (line != nullptr && strncmp(line, "+COPS:", 6) == 0 &&
+        extractQuotedField(line, 0, parsed, sizeof(parsed)))
+    {
+        copyText(operatorName, sizeof(operatorName), parsed);
+    }
+}
+
+void GSMModule::parseSMSStorageStatus(const char* line)
+{
+    smsStorageStatus = SMSStorageStatus{};
+    unsigned int used = 0;
+    unsigned int total = 0;
+    if (line == nullptr ||
+        sscanf(line, "+CPMS: \"%*[^\"]\",%u,%u", &used, &total) != 2 ||
+        used > UINT16_MAX || total > UINT16_MAX)
+    {
+        return;
+    }
+
+    SMSStorageStatus parsed;
+    parsed.used = static_cast<uint16_t>(used);
+    parsed.total = static_cast<uint16_t>(total);
+    parsed.valid = true;
+    smsStorageStatus = parsed;
 }
 
 void GSMModule::parseSMSHeader(const char* line)
@@ -612,17 +798,79 @@ void GSMModule::storeIncomingSMS()
 
     incomingSMS.valid = true;
 
-    // در صف پر، قدیمی‌ترین پیام کنار گذاشته می‌شود؛ هیچ SMS از حافظه SIM حذف نمی‌شود.
+    // صف پر نباید هیچ پیام معتبر قبلی را برای پیام جدید حذف کند.
     if (smsCount == SMS_QUEUE_CAPACITY)
     {
-        smsHead = (smsHead + 1) % SMS_QUEUE_CAPACITY;
-        --smsCount;
+        smsQueueOverflow = true;
+        rememberPendingSMS(incomingSMS.storageIndex);
+        incomingSMS = SMSMessage{};
+        return;
     }
 
     smsQueue[smsTail] = incomingSMS;
     smsTail = (smsTail + 1) % SMS_QUEUE_CAPACITY;
     ++smsCount;
+    forgetPendingSMS(incomingSMS.storageIndex);
     incomingSMS = SMSMessage{};
+}
+
+void GSMModule::rememberPendingSMS(uint16_t storageIndex)
+{
+    for (uint8_t index = 0; index < pendingSMSCount; ++index)
+    {
+        if (pendingSMSIndexes[index] == storageIndex)
+            return;
+    }
+
+    if (storageIndex > 0 && pendingSMSCount < PENDING_SMS_CAPACITY)
+        pendingSMSIndexes[pendingSMSCount++] = storageIndex;
+}
+
+void GSMModule::forgetPendingSMS(uint16_t storageIndex)
+{
+    for (uint8_t index = 0; index < pendingSMSCount; ++index)
+    {
+        if (pendingSMSIndexes[index] != storageIndex)
+            continue;
+
+        for (uint8_t move = index + 1; move < pendingSMSCount; ++move)
+            pendingSMSIndexes[move - 1] = pendingSMSIndexes[move];
+        pendingSMSIndexes[--pendingSMSCount] = 0;
+        return;
+    }
+}
+
+bool GSMModule::hasQueuedSMSRead() const
+{
+    if (commandActive && activeCommand.type == CommandType::READ_SMS)
+        return true;
+
+    for (uint8_t offset = 0; offset < commandCount; ++offset)
+    {
+        const uint8_t index = (commandHead + offset) % COMMAND_QUEUE_CAPACITY;
+        if (commandQueue[index].type == CommandType::READ_SMS)
+            return true;
+    }
+    return false;
+}
+
+void GSMModule::retryPendingSMS()
+{
+    if (!isReady() || pendingSMSCount == 0 || smsCount >= SMS_QUEUE_CAPACITY ||
+        hasQueuedSMSRead())
+    {
+        return;
+    }
+
+    char command[32];
+    const uint16_t storageIndex = pendingSMSIndexes[0];
+    const int written = snprintf(command, sizeof(command), "AT+CMGR=%u", storageIndex);
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(command) ||
+        !enqueueCommand(CommandType::READ_SMS, command, nullptr, storageIndex))
+    {
+        return;
+    }
+
 }
 
 void GSMModule::storeCall(bool incoming, bool active, const char* caller)
