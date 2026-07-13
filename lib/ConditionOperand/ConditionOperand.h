@@ -6,6 +6,8 @@
 
 struct ConditionOperand
 {
+    // sourceId و subIndex فقط شناسه منطقی Reference هستند؛ تفسیر آن‌ها بر عهده
+    // Adapter یا Evaluator آینده است و این مدل هیچ Registry Lookup یا Driver Read ندارد.
     ConditionSourceType sourceType;
     uint32_t sourceId;
     uint16_t subIndex;

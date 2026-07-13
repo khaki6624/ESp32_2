@@ -4,6 +4,7 @@
 #include <ConditionComparison.h>
 
 // نسخه اول Expression تخت است؛ اولویت عملگر و پرانتز را Evaluator آینده تعیین می‌کند.
+// Count صفر تنها حالت Empty است؛ اعتبار از ساختار محاسبه می‌شود و Flag valid/enabled ندارد.
 struct ConditionExpression
 {
     ConditionComparison comparisons[CONDITION_MAX_COMPARISONS];
@@ -29,7 +30,7 @@ struct ConditionExpression
     bool isFull() const { return comparisonCount>=CONDITION_MAX_COMPARISONS; }
     ConditionValidationResult addFirst(const ConditionComparison& comparison)
     {
-        if(!isEmpty()) return ConditionValidationResult::TOO_MANY_COMPARISONS;
+        if(!isEmpty()) return ConditionValidationResult::EXPRESSION_ALREADY_INITIALIZED;
         const ConditionValidationResult result=comparison.validate();
         if(result!=ConditionValidationResult::VALID) return result;
         comparisons[0]=comparison;comparisonCount=1;return ConditionValidationResult::VALID;

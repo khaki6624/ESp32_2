@@ -5,6 +5,8 @@
 
 struct ConditionComparison
 {
+    // نسخه اول Strict Type Matching دارد؛ هیچ Conversion خودکاری بین INTEGER،
+    // FLOAT و PERCENTAGE انجام نمی‌شود و Normalization به لایه‌های آینده واگذار شده است.
     ConditionOperand left;
     ComparisonOperator comparisonOperator;
     ConditionOperand right;
