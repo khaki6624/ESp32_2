@@ -15,7 +15,11 @@ struct CommandArgument
     bool valid;
 
     CommandArgument() : type(CommandArgumentType::NONE),integerValue(0),textValue{},valid(false) {}
-    void clear() { *this=CommandArgument{}; }
+    void clear()
+    {
+        // Assignment از Object پیش‌فرض، Union و Buffer متن را نیز به‌طور کامل Reset می‌کند.
+        *this=CommandArgument{};
+    }
     void invalidate() { clear(); }
     static CommandArgument makeBoolean(bool v) { CommandArgument r; r.type=CommandArgumentType::BOOLEAN;r.booleanValue=v;r.valid=true;return r; }
     static CommandArgument makeInteger(int32_t v) { CommandArgument r;r.type=CommandArgumentType::INTEGER;r.integerValue=v;r.valid=true;return r; }
@@ -40,7 +44,7 @@ struct CommandArgument
         if(type==CommandArgumentType::TOKEN&&tokenValue==INVALID_CONFIRM_TOKEN) return false;
         if(type==CommandArgumentType::DATE||type==CommandArgumentType::TIME||
            type==CommandArgumentType::TEXT||type==CommandArgumentType::COMMAND_TEXT)
-            return CommandText::isTerminated(textValue,sizeof(textValue));
+            return CommandText::isCanonical(textValue,sizeof(textValue));
         return true;
     }
     bool getBoolean(bool& out) const { if(!isValid()||type!=CommandArgumentType::BOOLEAN)return false;out=booleanValue;return true; }

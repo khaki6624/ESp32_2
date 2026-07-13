@@ -20,19 +20,27 @@ struct CommandResult
     bool isValid() const
     { return commandId!=INVALID_COMMAND_ID&&requestId!=INVALID_REQUEST_ID&&
              isValidExecutionStatus(status)&&isValidCommandErrorCode(errorCode)&&
-             CommandText::isTerminated(message,sizeof(message)); }
+             CommandText::isCanonical(message,sizeof(message)); }
     bool isTerminal() const { return isTerminalExecutionStatus(status); }
     bool isSuccess() const { return status==ExecutionStatus::SUCCESS&&errorCode==CommandErrorCode::NONE; }
     bool setMessage(const char* value) { return CommandText::set(message,sizeof(message),value); }
     bool transitionTo(ExecutionStatus newStatus,uint32_t timestampMs,
                       CommandErrorCode newErrorCode=CommandErrorCode::NONE)
     {
-        if(!isValid()||!isValidExecutionStatus(newStatus)||!isValidCommandErrorCode(newErrorCode)||
-           !isValidExecutionStatusTransition(status,newStatus)||
-           (newStatus==ExecutionStatus::SUCCESS&&newErrorCode!=CommandErrorCode::NONE)) return false;
-        status=newStatus; errorCode=newErrorCode;
-        if(newStatus==ExecutionStatus::EXECUTING) startedTimestampMs=timestampMs;
-        if(isTerminalExecutionStatus(newStatus)) completedTimestampMs=timestampMs;
+        if(!isValid()||!isValidExecutionStatus(newStatus)||!isValidCommandErrorCode(newErrorCode)) return false;
+        if(!isValidExecutionStatusTransition(status,newStatus)) return false;
+        if(newStatus==ExecutionStatus::SUCCESS&&newErrorCode!=CommandErrorCode::NONE) return false;
+
+        uint32_t newStartedTimestampMs=startedTimestampMs;
+        uint32_t newCompletedTimestampMs=completedTimestampMs;
+        if(newStatus==ExecutionStatus::EXECUTING) newStartedTimestampMs=timestampMs;
+        if(isTerminalExecutionStatus(newStatus)) newCompletedTimestampMs=timestampMs;
+
+        // Commit نهایی فقط پس از کامل شدن تمام Validationها انجام می‌شود.
+        status=newStatus;
+        errorCode=newErrorCode;
+        startedTimestampMs=newStartedTimestampMs;
+        completedTimestampMs=newCompletedTimestampMs;
         return true;
     }
 };

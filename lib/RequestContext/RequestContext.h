@@ -16,7 +16,7 @@ struct RequestContext
     bool isValid() const
     {
         return requestId!=INVALID_REQUEST_ID && source!=CommandSource::NONE &&
-               isValidCommandSource(source) && CommandText::isTerminated(sourceName,sizeof(sourceName));
+               isValidCommandSource(source) && CommandText::isCanonical(sourceName,sizeof(sourceName));
     }
     bool setSourceName(const char* value) { return CommandText::set(sourceName,sizeof(sourceName),value); }
 };

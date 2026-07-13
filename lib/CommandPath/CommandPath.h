@@ -9,7 +9,7 @@ struct CommandPathSegment
     bool hasIndex;
     CommandPathSegment() : name{},index(0),hasIndex(false) {}
     bool isValid() const
-    { return name[0]!='\0' && CommandText::isTerminated(name,sizeof(name)) && (!hasIndex||index!=0); }
+    { return name[0]!='\0' && CommandText::isCanonical(name,sizeof(name)) && (!hasIndex||index!=0); }
     bool setName(const char* value)
     { if(value==nullptr||value[0]=='\0') return false; return CommandText::set(name,sizeof(name),value); }
 };

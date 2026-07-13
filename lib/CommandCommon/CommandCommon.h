@@ -123,7 +123,18 @@ inline bool isValidCommandErrorCode(CommandErrorCode value)
 namespace CommandText
 {
 inline bool isTerminated(const char* value,size_t capacity)
-{ for(size_t i=0;i<capacity;++i) if(value[i]=='\0') return true; return false; }
+{ if(value==nullptr) return false; for(size_t i=0;i<capacity;++i) if(value[i]=='\0') return true; return false; }
+inline bool isCanonical(const char* value,size_t capacity)
+{
+    if(value==nullptr) return false;
+    bool terminated=false;
+    for(size_t i=0;i<capacity;++i)
+    {
+        if(value[i]=='\0') terminated=true;
+        else if(terminated) return false;
+    }
+    return terminated;
+}
 inline bool set(char* destination,size_t capacity,const char* value)
 {
     if(value==nullptr) return false;
