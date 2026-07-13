@@ -8,6 +8,8 @@ struct SceneStep
 {
     AutomationStepIndex stepIndex;
     Command command;
+    // فاصله پس از این Step و پیش از Step بعدی است؛ با Command.durationMs که مدت
+    // Action موقت و Restore را بیان می‌کند متفاوت است و نباید با آن ادغام شود.
     uint32_t delayAfterMs;
     bool enabled;
 

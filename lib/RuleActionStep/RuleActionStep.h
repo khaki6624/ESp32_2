@@ -9,6 +9,8 @@ struct RuleActionStep
     AutomationStepIndex stepIndex;
     RuleBranch branch;
     Command command;
+    // تأخیر پیش از Action این Step است؛ مستقل از Command.durationMs باقی می‌ماند
+    // و نباید جایگزین یا با Duration فرمان Merge شود.
     uint32_t delayBeforeMs;
     bool enabled;
 

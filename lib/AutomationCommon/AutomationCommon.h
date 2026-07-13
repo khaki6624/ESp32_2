@@ -55,6 +55,8 @@ inline bool isValidDayOfWeek(DayOfWeek value)
 }
 
 using ScheduleDaysMask = uint8_t;
+// Mask صفر از نظر ساختاری معتبر و به معنی انتخاب نشدن هیچ روزی است؛ مجاز بودن
+// آن برای هر Mode در ScheduledCommand::validate() بررسی می‌شود.
 inline ScheduleDaysMask dayToMask(DayOfWeek day)
 {
     if(!isValidDayOfWeek(day) || day==DayOfWeek::NONE) return 0;
@@ -96,6 +98,7 @@ struct AutomationDate
     uint8_t month;
     uint8_t day;
     AutomationDate() : year(0),month(0),day(0) {}
+    bool isEmpty() const { return year==0U&&month==0U&&day==0U; }
     bool isValid() const
     {
         if(year<2000U||year>2199U||month<1U||month>12U||day<1U) return false;
@@ -114,6 +117,7 @@ struct AutomationTime
     uint8_t minute;
     uint8_t second;
     AutomationTime() : hour(0xFFU),minute(0xFFU),second(0xFFU) {}
+    bool isEmpty() const { return hour==0xFFU&&minute==0xFFU&&second==0xFFU; }
     bool isValid() const { return hour<=23U&&minute<=59U&&second<=59U; }
     void clear() { *this=AutomationTime{}; }
 };
