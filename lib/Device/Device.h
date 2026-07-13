@@ -23,14 +23,14 @@ struct Device
 
     bool isValid() const
     {
-        // enabled و configured بخشی از هویت معتبر Device نیستند.
+        // Device موقت می‌تواند پیش از انتخاب Location همچنان هویت معتبر داشته باشد.
         return id != INVALID_DEVICE_ID && templateId != INVALID_DEVICE_TEMPLATE_ID &&
-               name[0] != '\0' && locationId != INVALID_LOCATION_ID && binding.isValid();
+               name[0] != '\0' && binding.isValid();
     }
 
     bool isOperational() const
     {
-        return isValid() && enabled && configured &&
+        return isValid() && enabled && configured && locationId != INVALID_LOCATION_ID &&
                (health == DeviceHealth::OK || health == DeviceHealth::DEGRADED);
     }
 

@@ -16,12 +16,11 @@ struct DeviceTemplate
     DriverTypeMask allowedDriverTypes = 0;
     bool systemTemplate = false;
     bool enabled = false;
-    bool valid = false;
 
     bool isValid() const
     {
         // enabled مستقل از اعتبار قرارداد Template است؛ Action خالی برای مدل Passive مجاز است.
-        return valid && id != INVALID_DEVICE_TEMPLATE_ID && name[0] != '\0' &&
+        return id != INVALID_DEVICE_TEMPLATE_ID && name[0] != '\0' &&
                valueType != DeviceValueType::NONE && isValidDeviceValueType(valueType) &&
                allowedDriverTypes != 0U && isValidDriverTypeMask(allowedDriverTypes) &&
                isValidActionMask(allowedActions);
@@ -29,12 +28,12 @@ struct DeviceTemplate
 
     bool supportsAction(DeviceAction action) const
     {
-        return hasAction(allowedActions, action);
+        return isValid() && hasAction(allowedActions, action);
     }
 
     bool supportsDriver(DriverType type) const
     {
-        return hasDriverType(allowedDriverTypes, type);
+        return isValid() && hasDriverType(allowedDriverTypes, type);
     }
 
     bool setName(const char* value)

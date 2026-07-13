@@ -2,6 +2,7 @@
 #define DEVICE_COMMON_H
 
 #include <stdint.h>
+#include <math.h>
 
 using DeviceId = uint16_t;
 using DeviceTemplateId = uint16_t;
@@ -190,10 +191,23 @@ struct DeviceValue
     {
     }
 
+    void invalidate(uint32_t timestamp = 0)
+    {
+        type = DeviceValueType::NONE;
+        integerValue = 0;
+        valid = false;
+        timestampMs = timestamp;
+    }
+
+    void clear()
+    {
+        invalidate(0);
+    }
+
     static DeviceValue invalid(uint32_t timestamp = 0)
     {
         DeviceValue result;
-        result.timestampMs = timestamp;
+        result.invalidate(timestamp);
         return result;
     }
 
@@ -219,6 +233,9 @@ struct DeviceValue
 
     static DeviceValue makeFloat(float value, uint32_t timestamp = 0)
     {
+        if (!isfinite(value))
+            return invalid(timestamp);
+
         DeviceValue result;
         result.type = DeviceValueType::FLOAT;
         result.floatValue = value;
@@ -305,9 +322,11 @@ struct DeviceValue
                 return integerValue == other.integerValue;
             case DeviceValueType::FLOAT:
             {
-                // مقایسه Float با Epsilon مطلق انجام می‌شود؛ Timestamp در Value دخیل نیست.
-                const float difference = floatValue - other.floatValue;
-                return difference <= floatEpsilon && difference >= -floatEpsilon;
+                // Epsilon منفی قدرمطلق می‌شود و مقدار غیرمتناهی به پیش‌فرض امن برمی‌گردد.
+                const float epsilon = isfinite(floatEpsilon)
+                    ? (floatEpsilon < 0.0f ? -floatEpsilon : floatEpsilon)
+                    : 0.0001f;
+                return fabsf(floatValue - other.floatValue) <= epsilon;
             }
             case DeviceValueType::PERCENTAGE:
                 return percentageValue == other.percentageValue;
@@ -319,6 +338,11 @@ struct DeviceValue
         }
     }
 };
+
+// Arduino Core نام عمومی DISABLED را Macro کرده است؛ قرارداد Enum باید همین نام را حفظ کند.
+#ifdef DISABLED
+#undef DISABLED
+#endif
 
 enum class DeviceHealth : uint8_t
 {

@@ -6,6 +6,8 @@
 namespace
 {
     // CRC32 استاندارد IEEE با Polynomial بازتاب‌یافته 0xEDB88320.
+    // Reservedها با Zero-Initialization صفر می‌مانند، Validate می‌شوند و در CRC حضور دارند؛
+    // استفاده آینده از آن‌ها نیازمند Version جدید یا Migration صریح است.
     uint32_t updateCRC32(uint32_t crc, const void* rawData, size_t length)
     {
         const uint8_t* data = static_cast<const uint8_t*>(rawData);
@@ -47,9 +49,24 @@ namespace
         return updateCRC32(crc, bytes, sizeof(bytes));
     }
 
-    bool hasNullTerminator(const char* value, size_t capacity)
+    bool isCanonicalFixedText(const char* value, size_t capacity, bool allowEmpty)
     {
-        return value != nullptr && memchr(value, '\0', capacity) != nullptr;
+        if (value == nullptr || capacity == 0U)
+            return false;
+
+        size_t terminatorIndex = 0;
+        while (terminatorIndex < capacity && value[terminatorIndex] != '\0')
+            ++terminatorIndex;
+
+        if (terminatorIndex >= capacity || (!allowEmpty && terminatorIndex == 0U))
+            return false;
+
+        for (size_t index = terminatorIndex + 1U; index < capacity; ++index)
+        {
+            if (value[index] != '\0')
+                return false;
+        }
+        return true;
     }
 
     bool copyRecordText(char* destination, size_t capacity, const char* source)
@@ -83,8 +100,8 @@ bool DeviceSerialization::serialize(const Device& device, DeviceRecord& record)
     result.driverType = device.binding.driverType;
     result.driverInstance = device.binding.driverInstance;
     result.channel = device.binding.channel;
-    result.enabled = device.enabled;
-    result.configured = device.configured;
+    result.enabled = device.enabled ? 1U : 0U;
+    result.configured = device.configured ? 1U : 0U;
     result.checksum = calculateChecksum(result);
     record = result;
     return true;
@@ -106,11 +123,11 @@ bool DeviceSerialization::deserialize(const DeviceRecord& record, Device& device
     result.binding.driverInstance = record.driverInstance;
     result.binding.channel = record.channel;
     result.binding.valid = true;
-    result.enabled = record.enabled;
-    result.configured = record.configured;
+    result.enabled = record.enabled != 0U;
+    result.configured = record.configured != 0U;
 
     // Stateهای Runtime عمداً از Record بازیابی نمی‌شوند.
-    result.state = DeviceValue{};
+    result.state.clear();
     result.health = DeviceHealth::UNKNOWN;
     result.lastUpdateMs = 0;
     result.lastChangeMs = 0;
@@ -128,9 +145,11 @@ bool DeviceSerialization::validate(const DeviceRecord& record)
            record.checksum == calculateChecksum(record) &&
            record.id != INVALID_DEVICE_ID &&
            record.templateId != INVALID_DEVICE_TEMPLATE_ID &&
-           hasNullTerminator(record.name, sizeof(record.name)) &&
-           record.name[0] != '\0' &&
-           record.locationId != INVALID_LOCATION_ID &&
+           isCanonicalFixedText(record.name, sizeof(record.name), false) &&
+           isValidStoredBoolean(record.enabled) &&
+           isValidStoredBoolean(record.configured) &&
+           record.reserved == 0U &&
+           (record.configured == 0U || record.locationId != INVALID_LOCATION_ID) &&
            record.nodeId != INVALID_NODE_ID &&
            isValidDriverType(record.driverType) &&
            record.driverType != DriverType::NONE;
@@ -148,8 +167,9 @@ uint32_t DeviceSerialization::calculateChecksum(const DeviceRecord& record)
     crc = updateUint8(crc, static_cast<uint8_t>(record.driverType));
     crc = updateUint8(crc, record.driverInstance);
     crc = updateUint8(crc, record.channel);
-    crc = updateUint8(crc, record.enabled ? 1U : 0U);
-    crc = updateUint8(crc, record.configured ? 1U : 0U);
+    crc = updateUint8(crc, record.enabled);
+    crc = updateUint8(crc, record.configured);
+    crc = updateUint8(crc, record.reserved);
     return crc ^ 0xFFFFFFFFUL;
 }
 
@@ -172,8 +192,8 @@ bool DeviceSerialization::serializeTemplate(
     result.valueType = deviceTemplate.valueType;
     result.allowedActions = deviceTemplate.allowedActions;
     result.allowedDriverTypes = deviceTemplate.allowedDriverTypes;
-    result.systemTemplate = deviceTemplate.systemTemplate;
-    result.enabled = deviceTemplate.enabled;
+    result.systemTemplate = deviceTemplate.systemTemplate ? 1U : 0U;
+    result.enabled = deviceTemplate.enabled ? 1U : 0U;
     result.checksum = calculateTemplateChecksum(result);
     record = result;
     return true;
@@ -194,9 +214,8 @@ bool DeviceSerialization::deserializeTemplate(
     result.valueType = record.valueType;
     result.allowedActions = record.allowedActions;
     result.allowedDriverTypes = record.allowedDriverTypes;
-    result.systemTemplate = record.systemTemplate;
-    result.enabled = record.enabled;
-    result.valid = true;
+    result.systemTemplate = record.systemTemplate != 0U;
+    result.enabled = record.enabled != 0U;
 
     if (!result.isValid())
         return false;
@@ -210,14 +229,20 @@ bool DeviceSerialization::validateTemplate(const DeviceTemplateRecord& record)
     return record.version == DEVICE_TEMPLATE_RECORD_VERSION &&
            record.checksum == calculateTemplateChecksum(record) &&
            record.id != INVALID_DEVICE_TEMPLATE_ID &&
-           hasNullTerminator(record.name, sizeof(record.name)) &&
-           record.name[0] != '\0' &&
-           hasNullTerminator(record.icon, sizeof(record.icon)) &&
+           isCanonicalFixedText(record.name, sizeof(record.name), false) &&
+           isCanonicalFixedText(record.icon, sizeof(record.icon), true) &&
            isValidDeviceValueType(record.valueType) &&
            record.valueType != DeviceValueType::NONE &&
            isValidActionMask(record.allowedActions) &&
            record.allowedDriverTypes != 0U &&
-           isValidDriverTypeMask(record.allowedDriverTypes);
+           isValidDriverTypeMask(record.allowedDriverTypes) &&
+           isValidStoredBoolean(record.systemTemplate) &&
+           isValidStoredBoolean(record.enabled) &&
+           record.reservedBeforeMasks[0] == 0U &&
+           record.reservedBeforeMasks[1] == 0U &&
+           record.reservedBeforeMasks[2] == 0U &&
+           record.reservedBeforeChecksum[0] == 0U &&
+           record.reservedBeforeChecksum[1] == 0U;
 }
 
 uint32_t DeviceSerialization::calculateTemplateChecksum(
@@ -230,9 +255,15 @@ uint32_t DeviceSerialization::calculateTemplateChecksum(
     crc = updateCRC32(crc, record.name, sizeof(record.name));
     crc = updateCRC32(crc, record.icon, sizeof(record.icon));
     crc = updateUint8(crc, static_cast<uint8_t>(record.valueType));
+    crc = updateCRC32(crc, record.reservedBeforeMasks, sizeof(record.reservedBeforeMasks));
     crc = updateUint32(crc, record.allowedActions);
     crc = updateUint32(crc, record.allowedDriverTypes);
-    crc = updateUint8(crc, record.systemTemplate ? 1U : 0U);
-    crc = updateUint8(crc, record.enabled ? 1U : 0U);
+    crc = updateUint8(crc, record.systemTemplate);
+    crc = updateUint8(crc, record.enabled);
+    crc = updateCRC32(
+        crc,
+        record.reservedBeforeChecksum,
+        sizeof(record.reservedBeforeChecksum)
+    );
     return crc ^ 0xFFFFFFFFUL;
 }

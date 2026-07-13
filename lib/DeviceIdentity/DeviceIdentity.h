@@ -2,6 +2,7 @@
 #define DEVICE_IDENTITY_H
 
 #include <Arduino.h>
+#include <DeviceCommon.h>
 
 namespace DeviceIdentity
 {
@@ -19,7 +20,7 @@ namespace DeviceIdentity
     // Default Parameters
     //==================================================
 
-    constexpr uint8_t DEFAULT_NODE_ID = 1;
+    constexpr NodeId DEFAULT_NODE_ID = 1;
 
     constexpr uint8_t DEFAULT_MODBUS_ADDRESS = 1;
 }
