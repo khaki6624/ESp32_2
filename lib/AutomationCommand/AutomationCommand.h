@@ -21,10 +21,10 @@ struct AutomationCommand
     AutomationCommandValidationResult validate() const
     {
         if(domain==CommandDomain::NONE||!isValidCommandDomain(domain))return AutomationCommandValidationResult::INVALID_DOMAIN;
-        if((hasDomainIndex&&domainIndex==0U)||(!hasDomainIndex&&domainIndex!=0U))return AutomationCommandValidationResult::INVALID_DOMAIN_INDEX;
         if(operation==CommandOperation::NONE||!isValidCommandOperation(operation))return AutomationCommandValidationResult::INVALID_OPERATION;
         if(isDangerous(operation))return AutomationCommandValidationResult::DANGEROUS_OPERATION_NOT_PERSISTABLE;
         if(!isSupportedMapping(domain,operation))return AutomationCommandValidationResult::DOMAIN_OPERATION_MISMATCH;
+        if(!isDomainIndexPolicyValid(domain,operation,domainIndex,hasDomainIndex))return AutomationCommandValidationResult::INVALID_DOMAIN_INDEX;
         if(argumentCount>AUTOMATION_COMMAND_MAX_ARGUMENTS)return AutomationCommandValidationResult::TOO_MANY_ARGUMENTS;
         for(size_t i=0;i<argumentCount;++i)if(!arguments[i].isValid())return AutomationCommandValidationResult::INVALID_ARGUMENT;
         if(argumentCount!=0U)return AutomationCommandValidationResult::INVALID_ARGUMENT;
@@ -60,6 +60,20 @@ private:
             case CommandDomain::NODE:return valueOperation==CommandOperation::PING||valueOperation==CommandOperation::SYNC||valueOperation==CommandOperation::DISCOVER;
             case CommandDomain::SCN:return valueOperation==CommandOperation::RUN||valueOperation==CommandOperation::STOP;
             case CommandDomain::CALL:return valueOperation==CommandOperation::START||valueOperation==CommandOperation::STOP;
+            default:return false;
+        }
+    }
+    static bool isDomainIndexPolicyValid(CommandDomain valueDomain,CommandOperation valueOperation,
+                                         uint16_t valueDomainIndex,bool valueHasDomainIndex)
+    {
+        if(valueDomain==CommandDomain::CALL&&valueOperation==CommandOperation::STOP)
+            return !valueHasDomainIndex&&valueDomainIndex==0U;
+        switch(valueDomain)
+        {
+            case CommandDomain::OUT: case CommandDomain::IR: case CommandDomain::RF:
+            case CommandDomain::NODE: case CommandDomain::SCN: case CommandDomain::SMS:
+            case CommandDomain::CALL:
+                return valueHasDomainIndex&&valueDomainIndex!=0U;
             default:return false;
         }
     }

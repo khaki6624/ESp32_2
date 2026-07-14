@@ -1,10 +1,10 @@
+#include <SceneManager.h>
+#include <RuleManager.h>
+#include <ScheduleManager.h>
 #include <Arduino.h>
 #include <unity.h>
 #include <math.h>
 #include <type_traits>
-#include <SceneManager.h>
-#include <RuleManager.h>
-#include <ScheduleManager.h>
 
 static AutomationCommand makeAction(CommandDomain domain,uint16_t index,CommandOperation operation)
 {
@@ -62,6 +62,62 @@ void testActionMappings()
     auto explicitZero=makeAction(CommandDomain::OUT,1,CommandOperation::ON);explicitZero.setDuration(0);TEST_ASSERT_TRUE(explicitZero.hasDurationValue);explicitZero.clearDuration();TEST_ASSERT_FALSE(explicitZero.hasDurationValue);
 }
 
+void testDomainIndexPolicy()
+{
+    auto pulse=makeAction(CommandDomain::OUT,1,CommandOperation::PULSE);pulse.setDuration(1);
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::OUT,1,CommandOperation::ON).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::OUT,1,CommandOperation::OFF).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::OUT,1,CommandOperation::TOGGLE).isValid());
+    TEST_ASSERT_TRUE(pulse.isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::IR,1,CommandOperation::SEND).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::RF,1,CommandOperation::SEND).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::NODE,1,CommandOperation::PING).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::NODE,1,CommandOperation::SYNC).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::NODE,1,CommandOperation::DISCOVER).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::SCN,1,CommandOperation::RUN).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::SCN,1,CommandOperation::STOP).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::SMS,1,CommandOperation::SEND).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::CALL,1,CommandOperation::START).isValid());
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::CALL,0,CommandOperation::STOP).isValid());
+
+    const AutomationCommandValidationResult expected=AutomationCommandValidationResult::INVALID_DOMAIN_INDEX;
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::OUT,0,CommandOperation::ON).validate()==expected);
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::IR,0,CommandOperation::SEND).validate()==expected);
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::RF,0,CommandOperation::SEND).validate()==expected);
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::NODE,0,CommandOperation::PING).validate()==expected);
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::SCN,0,CommandOperation::RUN).validate()==expected);
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::SMS,0,CommandOperation::SEND).validate()==expected);
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::CALL,0,CommandOperation::START).validate()==expected);
+    TEST_ASSERT_TRUE(makeAction(CommandDomain::CALL,1,CommandOperation::STOP).validate()==expected);
+}
+
+void testRuleBranchIndependence()
+{
+    Rule rule=makeRule(1,"Branches");
+    RuleActionStep elseStep;elseStep.stepIndex=1;elseStep.branch=RuleBranch::ELSE_BRANCH;
+    elseStep.command=makeAction(CommandDomain::OUT,2,CommandOperation::OFF);elseStep.delayBeforeMs=20;
+    TEST_ASSERT_TRUE(rule.addActionStep(elseStep)==AutomationModelResult::SUCCESS);
+
+    RuleActionStep thenStep;thenStep.stepIndex=1;thenStep.branch=RuleBranch::THEN_BRANCH;
+    thenStep.command=makeAction(CommandDomain::OUT,1,CommandOperation::ON);thenStep.delayBeforeMs=10;
+    TEST_ASSERT_TRUE(rule.updateActionStep(thenStep)==AutomationModelResult::NOT_FOUND);
+    TEST_ASSERT_TRUE(rule.addActionStep(thenStep)==AutomationModelResult::SUCCESS);
+    TEST_ASSERT_TRUE(rule.isValid());
+
+    RuleActionStep thenUpdate=thenStep;thenUpdate.delayBeforeMs=100;
+    TEST_ASSERT_TRUE(rule.updateActionStep(thenUpdate)==AutomationModelResult::SUCCESS);
+    TEST_ASSERT_EQUAL_UINT32(100,rule.findActionStep(RuleBranch::THEN_BRANCH,1)->delayBeforeMs);
+    TEST_ASSERT_EQUAL_UINT32(20,rule.findActionStep(RuleBranch::ELSE_BRANCH,1)->delayBeforeMs);
+
+    RuleActionStep elseUpdate=elseStep;elseUpdate.delayBeforeMs=200;
+    TEST_ASSERT_TRUE(rule.updateActionStep(elseUpdate)==AutomationModelResult::SUCCESS);
+    TEST_ASSERT_EQUAL_UINT32(100,rule.findActionStep(RuleBranch::THEN_BRANCH,1)->delayBeforeMs);
+    TEST_ASSERT_EQUAL_UINT32(200,rule.findActionStep(RuleBranch::ELSE_BRANCH,1)->delayBeforeMs);
+
+    RuleActionStep invalidBranch=thenStep;invalidBranch.branch=RuleBranch::NONE;
+    TEST_ASSERT_TRUE(rule.updateActionStep(invalidBranch)==AutomationModelResult::BRANCH_MISMATCH);
+}
+
 void testStepsAndModels()
 {
     SceneStep sceneStep;sceneStep.stepIndex=2;sceneStep.command=makeAction(CommandDomain::OUT,1,CommandOperation::ON);sceneStep.delayAfterMs=20;TEST_ASSERT_TRUE(sceneStep.isValid());
@@ -82,10 +138,10 @@ void testManagers()
     Schedule schedule=makeSchedule(1,"Daily");TEST_ASSERT_TRUE(schedules.add(schedule)==AutomationModelResult::SUCCESS);TEST_ASSERT_TRUE(schedules.update(schedule)==AutomationModelResult::SUCCESS);TEST_ASSERT_TRUE(schedules.remove(1)==AutomationModelResult::SUCCESS);
 }
 
-static_assert(sizeof(AutomationCommand)<48U,"AutomationCommand باید فشرده بماند");
+static_assert(sizeof(AutomationCommand)==36U,"Layout حافظه AutomationCommand نباید تغییر کند");
 static_assert(std::is_same<decltype(static_cast<const Scene&>(*(Scene*)nullptr).findStep(1)),const SceneStep*>::value,"Scene read API");
 static_assert(std::is_same<decltype(static_cast<const Rule&>(*(Rule*)nullptr).findActionStep(RuleBranch::THEN_BRANCH,1)),const RuleActionStep*>::value,"Rule read API");
 static_assert(std::is_same<decltype(static_cast<const Schedule&>(*(Schedule*)nullptr).findCommand(1)),const ScheduledCommand*>::value,"Schedule read API");
 
-void setup(){UNITY_BEGIN();RUN_TEST(testArguments);RUN_TEST(testActionMappings);RUN_TEST(testStepsAndModels);RUN_TEST(testManagers);UNITY_END();}
+void setup(){UNITY_BEGIN();RUN_TEST(testArguments);RUN_TEST(testActionMappings);RUN_TEST(testDomainIndexPolicy);RUN_TEST(testRuleBranchIndependence);RUN_TEST(testStepsAndModels);RUN_TEST(testManagers);UNITY_END();}
 void loop(){}

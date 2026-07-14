@@ -22,7 +22,16 @@ struct Rule
     AutomationModelResult addActionStep(const RuleActionStep& step)
     {if(!step.isValid())return AutomationModelResult::INVALID_STEP;if(step.branch!=RuleBranch::THEN_BRANCH&&step.branch!=RuleBranch::ELSE_BRANCH)return AutomationModelResult::BRANCH_MISMATCH;uint8_t& count=step.branch==RuleBranch::THEN_BRANCH?thenStepCount:elseStepCount;RuleActionStep* array=step.branch==RuleBranch::THEN_BRANCH?thenSteps:elseSteps;if(count>=RULE_MAX_ACTION_STEPS)return AutomationModelResult::STEP_CAPACITY_FULL;for(size_t i=0;i<count;++i)if(array[i].stepIndex==step.stepIndex)return AutomationModelResult::DUPLICATE_STEP_INDEX;array[count++]=step;return AutomationModelResult::SUCCESS;}
     AutomationModelResult updateActionStep(const RuleActionStep& step)
-    {if(!step.isValid())return AutomationModelResult::INVALID_STEP;if(step.branch!=RuleBranch::THEN_BRANCH&&step.branch!=RuleBranch::ELSE_BRANCH)return AutomationModelResult::BRANCH_MISMATCH;RuleActionStep* p=findActionStepMutable(step.branch,step.stepIndex);if(p){*p=step;return AutomationModelResult::SUCCESS;}RuleBranch other=step.branch==RuleBranch::THEN_BRANCH?RuleBranch::ELSE_BRANCH:RuleBranch::THEN_BRANCH;if(findActionStep(other,step.stepIndex))return AutomationModelResult::BRANCH_MISMATCH;return AutomationModelResult::NOT_FOUND;}
+    {
+        if(step.branch!=RuleBranch::THEN_BRANCH&&step.branch!=RuleBranch::ELSE_BRANCH)return AutomationModelResult::BRANCH_MISMATCH;
+        if(!step.isValid())return AutomationModelResult::INVALID_STEP;
+        RuleActionStep* current=findActionStepMutable(step.branch,step.stepIndex);
+        if(current==nullptr)return AutomationModelResult::NOT_FOUND;
+        *current=step;
+        // انتقال Step میان THEN و ELSE با update انجام نمی‌شود. Caller باید ابتدا
+        // remove و سپس add کند؛ در صورت نیاز آینده API مستقل moveActionStep طراحی می‌شود.
+        return AutomationModelResult::SUCCESS;
+    }
     AutomationModelResult removeActionStep(RuleBranch branch,AutomationStepIndex index)
     {if(branch!=RuleBranch::THEN_BRANCH&&branch!=RuleBranch::ELSE_BRANCH)return AutomationModelResult::BRANCH_MISMATCH;if(index==INVALID_AUTOMATION_STEP_INDEX)return AutomationModelResult::INVALID_INDEX;uint8_t& count=branch==RuleBranch::THEN_BRANCH?thenStepCount:elseStepCount;RuleActionStep* a=branch==RuleBranch::THEN_BRANCH?thenSteps:elseSteps;size_t i=0;while(i<count&&a[i].stepIndex!=index)++i;if(i==count)return AutomationModelResult::NOT_FOUND;for(size_t j=i+1U;j<count;++j)a[j-1U]=a[j];--count;a[count]=RuleActionStep{};return AutomationModelResult::SUCCESS;}
     const RuleActionStep* findActionStep(RuleBranch branch,AutomationStepIndex index)const{uint8_t count=branch==RuleBranch::THEN_BRANCH?thenStepCount:branch==RuleBranch::ELSE_BRANCH?elseStepCount:0;const RuleActionStep* a=branch==RuleBranch::THEN_BRANCH?thenSteps:branch==RuleBranch::ELSE_BRANCH?elseSteps:nullptr;for(size_t i=0;i<count;++i)if(a[i].stepIndex==index)return &a[i];return nullptr;}
