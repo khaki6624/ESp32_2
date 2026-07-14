@@ -1,6 +1,6 @@
-#include <Arduino.h>
 #include <RuleExecutor.h>
 #include <SceneExecutionQueueSink.h>
+#include <Arduino.h>
 #include <unity.h>
 
 class FakeCommandIdProvider final : public CommandIdProvider
@@ -163,7 +163,7 @@ void testEnabledStepsDelayAndMapping()
     TEST_ASSERT_EQUAL_UINT32(1U, command->context.request.requestId);
     TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(CommandSource::RULE_ENGINE),
         static_cast<uint8_t>(command->context.request.source));
-    TEST_ASSERT_EQUAL_CHAR('\0', command->originalText[0]);
+    TEST_ASSERT_EQUAL_INT8(0, command->originalText[0]);
 }
 
 void testBackpressureRetryAndCancellation()
