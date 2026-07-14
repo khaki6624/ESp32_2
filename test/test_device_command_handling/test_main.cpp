@@ -45,7 +45,9 @@ namespace
     {
         DeviceTemplate result{};
         result.id = id;
-        result.setName("handler-template");
+        result.setName(id == 1U ? "output-template" :
+            (id == 2U ? "digital-template" :
+             (id == 3U ? "analog-template" : "dimmer-template")));
         result.valueType = valueType;
         addDriverType(result.allowedDriverTypes, driverType);
         addAction(result.allowedActions, DeviceAction::ON);
@@ -65,7 +67,10 @@ namespace
         Device result{};
         result.id = id;
         result.templateId = templateId;
-        result.setName("handler-device");
+        result.setName(id == 57U ? "output-device" :
+            (id == 91U ? "digital-device" :
+             (id == 120U ? "analog-device" :
+              (id == 121U ? "duplicate-device" : "updated-device"))));
         result.locationId = 1U;
         result.binding = binding;
         result.enabled = true;
@@ -100,8 +105,8 @@ namespace
         deviceRegistry.clear();
         templateRegistry.clear();
         const DeviceBinding relayBinding = makeBinding(DriverType::RELAY, 1U);
-        const DeviceBinding digitalBinding = makeBinding(DriverType::DIGITAL_INPUT, 2U);
-        const DeviceBinding analogBinding = makeBinding(DriverType::ANALOG_INPUT, 3U);
+        const DeviceBinding digitalBinding = makeBinding(DriverType::DIGITAL_INPUT, 3U);
+        const DeviceBinding analogBinding = makeBinding(DriverType::ANALOG_INPUT, 2U);
         TEST_ASSERT_TRUE(templateRegistry.add(
             makeTemplate(1U, DriverType::RELAY, DeviceValueType::BOOLEAN)
         ));
@@ -112,13 +117,13 @@ namespace
             makeTemplate(3U, DriverType::ANALOG_INPUT, DeviceValueType::INTEGER)
         ));
         TEST_ASSERT_EQUAL_UINT8(0U, static_cast<uint8_t>(
-            deviceRegistry.add(makeDevice(1U, 1U, relayBinding))
+            deviceRegistry.add(makeDevice(57U, 1U, relayBinding))
         ));
         TEST_ASSERT_EQUAL_UINT8(0U, static_cast<uint8_t>(
-            deviceRegistry.add(makeDevice(2U, 2U, digitalBinding))
+            deviceRegistry.add(makeDevice(91U, 2U, digitalBinding))
         ));
         TEST_ASSERT_EQUAL_UINT8(0U, static_cast<uint8_t>(
-            deviceRegistry.add(makeDevice(3U, 3U, analogBinding))
+            deviceRegistry.add(makeDevice(120U, 3U, analogBinding))
         ));
         TEST_ASSERT_EQUAL_UINT8(0U, static_cast<uint8_t>(
             resolver.registerOutput(relayBinding, relayAdapter)
@@ -181,6 +186,50 @@ void test_action_duration_and_result_mapping()
         static_cast<uint8_t>(commandHandler.handle(command, output)));
 }
 
+void test_registry_resolves_command_address_not_device_id()
+{
+    const Device* output = deviceRegistry.findByCommandAddress(CommandDomain::OUT, 1U);
+    TEST_ASSERT_NOT_NULL(output);
+    TEST_ASSERT_EQUAL_UINT16(57U, output->id);
+    TEST_ASSERT_NULL(deviceRegistry.findById(1U));
+    const Device* digital = deviceRegistry.findByCommandAddress(CommandDomain::IN, 3U);
+    TEST_ASSERT_NOT_NULL(digital);
+    TEST_ASSERT_EQUAL_UINT16(91U, digital->id);
+    const Device* analog = deviceRegistry.findByCommandAddress(CommandDomain::ADC, 2U);
+    TEST_ASSERT_NOT_NULL(analog);
+    TEST_ASSERT_EQUAL_UINT16(120U, analog->id);
+    TEST_ASSERT_NULL(deviceRegistry.findByCommandAddress(CommandDomain::IN, 1U));
+    TEST_ASSERT_NULL(deviceRegistry.findByCommandAddress(CommandDomain::NODE, 1U));
+    TEST_ASSERT_NULL(deviceRegistry.findByCommandAddress(CommandDomain::OUT, 0U));
+}
+
+void test_duplicate_command_address_is_atomic()
+{
+    TEST_ASSERT_TRUE(templateRegistry.add(
+        makeTemplate(4U, DriverType::DIMMER, DeviceValueType::PERCENTAGE)
+    ));
+    DeviceBinding duplicateBinding = makeBinding(DriverType::RELAY, 1U);
+    duplicateBinding.nodeId = 2U;
+    Device duplicate = makeDevice(122U, 1U, duplicateBinding);
+    const size_t before = deviceRegistry.size();
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<uint8_t>(DeviceRegistryResult::DUPLICATE_COMMAND_ADDRESS),
+        static_cast<uint8_t>(deviceRegistry.add(duplicate))
+    );
+    TEST_ASSERT_EQUAL_UINT32(before, deviceRegistry.size());
+
+    DeviceBinding dimmerBinding = makeBinding(DriverType::DIMMER, 2U);
+    Device dimmer = makeDevice(121U, 4U, dimmerBinding);
+    TEST_ASSERT_EQUAL_UINT8(0U,
+        static_cast<uint8_t>(deviceRegistry.add(dimmer)));
+    dimmer.binding.channel = 1U;
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<uint8_t>(DeviceRegistryResult::DUPLICATE_COMMAND_ADDRESS),
+        static_cast<uint8_t>(deviceRegistry.update(dimmer))
+    );
+    TEST_ASSERT_EQUAL_UINT8(2U, deviceRegistry.findById(121U)->binding.channel);
+}
+
 void test_query_routing_and_domain_consistency()
 {
     CommandResult output;
@@ -192,12 +241,12 @@ void test_query_routing_and_domain_consistency()
     TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DeviceValueType::BOOLEAN),
         static_cast<uint8_t>(output.actualValue.type));
     query = makeCommand(
-        CommandDomain::IN, 2U, CommandOperation::NONE, CommandQueryType::ITEM_INFO
+        CommandDomain::IN, 3U, CommandOperation::NONE, CommandQueryType::ITEM_INFO
     );
     TEST_ASSERT_EQUAL_UINT8(0U,
         static_cast<uint8_t>(queryHandler.handle(query, output)));
     query = makeCommand(
-        CommandDomain::ADC, 3U, CommandOperation::NONE, CommandQueryType::ITEM_INFO
+        CommandDomain::ADC, 2U, CommandOperation::NONE, CommandQueryType::ITEM_INFO
     );
     TEST_ASSERT_EQUAL_UINT8(0U,
         static_cast<uint8_t>(queryHandler.handle(query, output)));
@@ -238,6 +287,8 @@ void setup()
     UNITY_BEGIN();
     RUN_TEST(test_command_validation_and_atomicity);
     RUN_TEST(test_action_duration_and_result_mapping);
+    RUN_TEST(test_registry_resolves_command_address_not_device_id);
+    RUN_TEST(test_duplicate_command_address_is_atomic);
     RUN_TEST(test_query_routing_and_domain_consistency);
     RUN_TEST(test_list_and_path_queries_are_unsupported);
     UNITY_END();

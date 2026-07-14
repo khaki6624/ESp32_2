@@ -7,6 +7,8 @@
 #include <DeviceRegistryQuery.h>
 #include <DeviceTemplateRegistry.h>
 
+enum class CommandDomain : uint8_t;
+
 class DeviceRegistry
 {
 public:
@@ -20,6 +22,11 @@ public:
 
     Device* findById(DeviceId id);
     const Device* findById(DeviceId id) const;
+
+    const Device* findByCommandAddress(
+        CommandDomain domain,
+        uint16_t domainIndex
+    ) const;
 
     Device* findByName(const char* name);
     const Device* findByName(const char* name) const;
@@ -55,6 +62,10 @@ private:
     size_t findIndexById(DeviceId id) const;
     bool nameBelongsToAnotherDevice(const char* name, DeviceId id) const;
     bool bindingBelongsToAnotherDevice(
+        const DeviceBinding& binding,
+        DeviceId id
+    ) const;
+    bool commandAddressBelongsToAnotherDevice(
         const DeviceBinding& binding,
         DeviceId id
     ) const;

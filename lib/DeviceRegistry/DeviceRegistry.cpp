@@ -1,5 +1,6 @@
 #include "DeviceRegistry.h"
 
+#include <CommandCommon.h>
 #include <string.h>
 
 namespace
@@ -10,6 +11,34 @@ namespace
     {
         return name != nullptr && name[0] != '\0' &&
                memchr(name, '\0', DEVICE_NAME_MAX_LENGTH) != nullptr;
+    }
+
+    CommandDomain commandDomainForDriver(DriverType driverType)
+    {
+        switch (driverType)
+        {
+            case DriverType::RELAY:
+            case DriverType::DIMMER:
+            case DriverType::ANALOG_OUTPUT:
+                return CommandDomain::OUT;
+            case DriverType::DIGITAL_INPUT:
+                return CommandDomain::IN;
+            case DriverType::ANALOG_INPUT:
+                return CommandDomain::ADC;
+            default:
+                return CommandDomain::NONE;
+        }
+    }
+
+    bool bindingMatchesCommandAddress(
+        const DeviceBinding& binding,
+        CommandDomain domain,
+        uint16_t domainIndex
+    )
+    {
+        return binding.isValid() && domainIndex != 0U &&
+               commandDomainForDriver(binding.driverType) == domain &&
+               static_cast<uint16_t>(binding.channel) == domainIndex;
     }
 }
 
@@ -41,6 +70,8 @@ DeviceRegistryResult DeviceRegistry::add(const Device& device)
         return DeviceRegistryResult::DUPLICATE_NAME;
     if (containsBinding(device.binding))
         return DeviceRegistryResult::DUPLICATE_BINDING;
+    if (commandAddressBelongsToAnotherDevice(device.binding, device.id))
+        return DeviceRegistryResult::DUPLICATE_COMMAND_ADDRESS;
 
     devices_[count_] = device;
     ++count_;
@@ -60,6 +91,8 @@ DeviceRegistryResult DeviceRegistry::update(const Device& device)
         return DeviceRegistryResult::DUPLICATE_NAME;
     if (bindingBelongsToAnotherDevice(device.binding, device.id))
         return DeviceRegistryResult::DUPLICATE_BINDING;
+    if (commandAddressBelongsToAnotherDevice(device.binding, device.id))
+        return DeviceRegistryResult::DUPLICATE_COMMAND_ADDRESS;
 
     // همه بررسی‌ها پیش از جایگزینی کامل Device انجام می‌شوند.
     devices_[index] = device;
@@ -93,6 +126,26 @@ const Device* DeviceRegistry::findById(DeviceId id) const
 {
     const size_t index = findIndexById(id);
     return index == INVALID_DEVICE_INDEX ? nullptr : &devices_[index];
+}
+
+const Device* DeviceRegistry::findByCommandAddress(
+    CommandDomain domain,
+    uint16_t domainIndex
+) const
+{
+    if (domainIndex == 0U ||
+        (domain != CommandDomain::OUT && domain != CommandDomain::IN &&
+         domain != CommandDomain::ADC))
+        return nullptr;
+
+    for (size_t index = 0; index < count_; ++index)
+    {
+        const Device& device = devices_[index];
+        if (device.isValid() && device.binding.isValid() &&
+            bindingMatchesCommandAddress(device.binding, domain, domainIndex))
+            return &device;
+    }
+    return nullptr;
 }
 
 Device* DeviceRegistry::findByName(const char* name)
@@ -290,6 +343,27 @@ bool DeviceRegistry::bindingBelongsToAnotherDevice(
     for (size_t index = 0; index < count_; ++index)
     {
         if (devices_[index].id != id && devices_[index].binding == binding)
+            return true;
+    }
+    return false;
+}
+
+bool DeviceRegistry::commandAddressBelongsToAnotherDevice(
+    const DeviceBinding& binding,
+    DeviceId id
+) const
+{
+    const CommandDomain domain = commandDomainForDriver(binding.driverType);
+    if (!binding.isValid() || domain == CommandDomain::NONE || binding.channel == 0U)
+        return false;
+    for (size_t index = 0; index < count_; ++index)
+    {
+        if (devices_[index].id != id &&
+            bindingMatchesCommandAddress(
+                devices_[index].binding,
+                domain,
+                static_cast<uint16_t>(binding.channel)
+            ))
             return true;
     }
     return false;

@@ -23,7 +23,8 @@ enum class DeviceRegistryResult : uint8_t
     SYSTEM_CAPACITY_FULL,
     OUTPUT_BUFFER_INVALID,
     OUTPUT_BUFFER_TOO_SMALL,
-    NO_MATCHES
+    NO_MATCHES,
+    DUPLICATE_COMMAND_ADDRESS
 };
 
 inline bool isDeviceRegistrySuccess(DeviceRegistryResult result)

@@ -119,8 +119,10 @@ DeviceCommandHandlerResult DeviceQueryHandler::resolveDeviceAndTemplate(
     const DeviceTemplate*& deviceTemplate
 ) const
 {
-    const DeviceId deviceId = static_cast<DeviceId>(command.domainIndex);
-    const Device* resolvedDevice = deviceRegistry_.findById(deviceId);
+    const Device* resolvedDevice = deviceRegistry_.findByCommandAddress(
+        command.domain,
+        command.domainIndex
+    );
     if (resolvedDevice == nullptr)
         return DeviceCommandHandlerResult::DEVICE_NOT_FOUND;
     const DeviceTemplate* resolvedTemplate = templateRegistry_.findById(
