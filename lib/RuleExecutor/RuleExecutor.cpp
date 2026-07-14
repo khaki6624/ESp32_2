@@ -10,7 +10,8 @@ RuleExecutor::RuleExecutor(const RuleManager& ruleManager, RuleTriggerQueue& tri
       state_(RuleExecutionState::IDLE), lastResult_(RuleExecutionResult::SUCCESS),
       currentTrigger_{}, currentActionArrayIndex_(0U),
       firstReservedCommandId_(INVALID_COMMAND_ID), nextCommandId_(INVALID_COMMAND_ID),
-      activeCommandCount_(0U), delayStartedMs_(0U), delayDurationMs_(0U) {}
+      activeCommandCount_(0U), delayStartedMs_(0U), delayDurationMs_(0U),
+      reservedBranchFingerprint_(0U) {}
 
 void RuleExecutor::update(uint32_t nowMs)
 {
@@ -144,6 +145,9 @@ RuleExecutionResult RuleExecutor::reserveCommandIds(const Rule& rule)
     const size_t currentCount = countEnabledActions(rule, currentTrigger_.branch);
     if (currentCount != activeCommandCount_ || currentCount == 0U)
         return RuleExecutionResult::RULE_INVALID;
+    uint32_t fingerprint = 0U;
+    if (!calculateBranchFingerprint(rule, currentTrigger_.branch, fingerprint))
+        return RuleExecutionResult::RULE_INVALID;
     CommandId candidate = INVALID_COMMAND_ID;
     if (commandIdProvider_.reserveRange(currentCount, candidate) != CommandIdReservationResult::SUCCESS)
         return RuleExecutionResult::COMMAND_ID_RESERVATION_FAILED;
@@ -152,7 +156,85 @@ RuleExecutionResult RuleExecutor::reserveCommandIds(const Rule& rule)
         return RuleExecutionResult::INVALID_COMMAND_ID_RANGE;
     firstReservedCommandId_ = candidate;
     nextCommandId_ = candidate;
+    reservedBranchFingerprint_ = fingerprint;
     return RuleExecutionResult::SUCCESS;
+}
+
+bool RuleExecutor::calculateBranchFingerprint(const Rule& rule, RuleBranch branch,
+    uint32_t& output) const
+{
+    if (branch != RuleBranch::THEN_BRANCH && branch != RuleBranch::ELSE_BRANCH) return false;
+    constexpr uint32_t FNV_OFFSET = 2166136261UL;
+    constexpr uint32_t FNV_PRIME = 16777619UL;
+    uint32_t hash = FNV_OFFSET;
+    const auto addByte = [&hash](uint8_t value)
+    { hash ^= value; hash *= FNV_PRIME; };
+    const auto addUint32 = [&addByte](uint32_t value)
+    {
+        addByte(static_cast<uint8_t>(value));
+        addByte(static_cast<uint8_t>(value >> 8U));
+        addByte(static_cast<uint8_t>(value >> 16U));
+        addByte(static_cast<uint8_t>(value >> 24U));
+    };
+
+    addByte(static_cast<uint8_t>(branch));
+    const size_t slotCount = rule.actionCount(branch);
+    addUint32(static_cast<uint32_t>(slotCount));
+    for (size_t index = 0U; index < slotCount; ++index)
+    {
+        const RuleActionStep* step = rule.getActionStepAt(branch, index);
+        if (step == nullptr || !step->isValid() || step->branch != branch ||
+            !step->command.isValid()) return false;
+        const AutomationCommand& command = step->command;
+        addUint32(static_cast<uint32_t>(step->stepIndex));
+        addByte(static_cast<uint8_t>(step->branch));
+        addByte(step->enabled ? 1U : 0U);
+        addUint32(step->delayBeforeMs);
+        addByte(static_cast<uint8_t>(command.domain));
+        addUint32(static_cast<uint32_t>(command.domainIndex));
+        addByte(command.hasDomainIndex ? 1U : 0U);
+        addUint32(static_cast<uint32_t>(command.operation));
+        addByte(command.argumentCount);
+        for (size_t argumentIndex = 0U; argumentIndex < command.argumentCount; ++argumentIndex)
+        {
+            const AutomationCommandArgument* argument = command.getArgument(argumentIndex);
+            if (argument == nullptr || !argument->isValid()) return false;
+            addByte(static_cast<uint8_t>(argument->type));
+            switch (argument->type)
+            {
+                case AutomationArgumentType::BOOLEAN:
+                    addByte(argument->booleanValue ? 1U : 0U); break;
+                case AutomationArgumentType::INTEGER:
+                    addUint32(static_cast<uint32_t>(argument->integerValue)); break;
+                case AutomationArgumentType::FLOAT:
+                {
+                    // Float بدون خواندن حافظه خام به sign/exponent/significand شکسته می‌شود.
+                    int exponent = 0;
+                    const bool negative = signbit(argument->floatValue);
+                    const float absoluteValue = fabsf(argument->floatValue);
+                    const float fraction = frexpf(absoluteValue, &exponent);
+                    const uint32_t significand = static_cast<uint32_t>(ldexpf(fraction, 24));
+                    addByte(negative ? 1U : 0U);
+                    addUint32(static_cast<uint32_t>(exponent));
+                    addUint32(significand);
+                    break;
+                }
+                case AutomationArgumentType::PERCENTAGE:
+                    addByte(argument->percentageValue); break;
+                case AutomationArgumentType::DURATION_MS:
+                    addUint32(argument->durationMs); break;
+                case AutomationArgumentType::IDENTIFIER:
+                    addUint32(argument->identifierValue); break;
+                case AutomationArgumentType::ENUM_VALUE:
+                    addUint32(static_cast<uint32_t>(argument->enumValue)); break;
+                case AutomationArgumentType::NONE: default: return false;
+            }
+        }
+        addUint32(command.durationMs);
+        addByte(command.hasDurationValue ? 1U : 0U);
+    }
+    output = hash;
+    return true;
 }
 
 RuleExecutionResult RuleExecutor::processReadyAction(uint32_t nowMs)
@@ -160,6 +242,11 @@ RuleExecutionResult RuleExecutor::processReadyAction(uint32_t nowMs)
     const Rule* rule = nullptr;
     const RuleExecutionResult validation = validateCurrentRule(rule);
     if (validation != RuleExecutionResult::SUCCESS) return validation;
+    uint32_t fingerprint = 0U;
+    if (!calculateBranchFingerprint(*rule, currentTrigger_.branch, fingerprint))
+        return RuleExecutionResult::RULE_INVALID;
+    if (fingerprint != reservedBranchFingerprint_)
+        return RuleExecutionResult::RULE_CHANGED_DURING_EXECUTION;
     size_t foundIndex = 0U;
     const RuleActionStep* step = findNextEnabledAction(*rule, currentTrigger_.branch,
         currentActionArrayIndex_, foundIndex);
@@ -184,11 +271,19 @@ RuleExecutionResult RuleExecutor::submitCurrentAction(uint32_t nowMs)
     const Rule* rule = nullptr;
     RuleExecutionResult result = validateCurrentRule(rule);
     if (result != RuleExecutionResult::SUCCESS) { lastResult_ = result; state_ = RuleExecutionState::READY_ACTION; return result; }
+    uint32_t fingerprint = 0U;
+    if (!calculateBranchFingerprint(*rule, currentTrigger_.branch, fingerprint))
+    { lastResult_ = RuleExecutionResult::RULE_INVALID; state_ = RuleExecutionState::READY_ACTION; return lastResult_; }
+    if (fingerprint != reservedBranchFingerprint_)
+    { lastResult_ = RuleExecutionResult::RULE_CHANGED_DURING_EXECUTION; state_ = RuleExecutionState::READY_ACTION; return lastResult_; }
     const RuleActionStep* step = rule->getActionStepAt(currentTrigger_.branch, currentActionArrayIndex_);
     if (step == nullptr) { lastResult_ = RuleExecutionResult::ACTION_NOT_FOUND; state_ = RuleExecutionState::READY_ACTION; return lastResult_; }
     if (!step->enabled || !step->isValid() || step->branch != currentTrigger_.branch)
     { lastResult_ = RuleExecutionResult::INVALID_ACTION; state_ = RuleExecutionState::READY_ACTION; return lastResult_; }
-    if (nextCommandId_ == INVALID_COMMAND_ID)
+    const CommandId lastReservedCommandId = firstReservedCommandId_ +
+        static_cast<uint32_t>(activeCommandCount_ - 1U);
+    if (nextCommandId_ == INVALID_COMMAND_ID || nextCommandId_ < firstReservedCommandId_ ||
+        nextCommandId_ > lastReservedCommandId)
     { lastResult_ = RuleExecutionResult::INVALID_COMMAND_ID_RANGE; state_ = RuleExecutionState::READY_ACTION; return lastResult_; }
     Command command;
     if (commandFactory_.create(step->command, currentTrigger_.request, nextCommandId_, nowMs, command) !=
@@ -261,4 +356,5 @@ void RuleExecutor::clearCurrentRuntime()
     activeCommandCount_ = 0U;
     delayStartedMs_ = 0U;
     delayDurationMs_ = 0U;
+    reservedBranchFingerprint_ = 0U;
 }

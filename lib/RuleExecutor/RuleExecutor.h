@@ -39,6 +39,7 @@ private:
     size_t activeCommandCount_;
     uint32_t delayStartedMs_;
     uint32_t delayDurationMs_;
+    uint32_t reservedBranchFingerprint_;
 
     bool loadNextTrigger();
     RuleExecutionResult validateCurrentRule(const Rule*& outputRule) const;
@@ -46,6 +47,8 @@ private:
     const RuleActionStep* findNextEnabledAction(const Rule& rule, RuleBranch branch,
         size_t startIndex, size_t& foundIndex) const;
     RuleExecutionResult reserveCommandIds(const Rule& rule);
+    bool calculateBranchFingerprint(const Rule& rule, RuleBranch branch,
+        uint32_t& output) const;
     RuleExecutionResult processReadyAction(uint32_t nowMs);
     RuleExecutionResult submitCurrentAction(uint32_t nowMs);
     void finishCurrent(RuleExecutionState terminalState, RuleExecutionResult result);

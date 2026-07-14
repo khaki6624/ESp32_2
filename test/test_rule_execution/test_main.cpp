@@ -220,6 +220,82 @@ void testReservationFailuresAndRuleChange()
         static_cast<uint8_t>(executorValue.getLastResult()));
 }
 
+void testBranchMutationBeforeFirstSubmit()
+{
+    resetFixture(); Rule rule = makeRule(1U);
+    rule.addActionStep(makeStep(1U, RuleBranch::THEN_BRANCH));
+    rule.addActionStep(makeStep(2U, RuleBranch::THEN_BRANCH, false));
+    managerValue.add(rule); triggerQueueValue.enqueue(makeTrigger(1U, RuleBranch::THEN_BRANCH));
+    advanceToReady();
+    rule.thenSteps[1].enabled = true;
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(AutomationModelResult::SUCCESS),
+        static_cast<uint8_t>(managerValue.update(rule)));
+    executorValue.update(10U);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RuleExecutionResult::RULE_CHANGED_DURING_EXECUTION),
+        static_cast<uint8_t>(executorValue.getLastResult()));
+    TEST_ASSERT_TRUE(commandQueueValue.isEmpty());
+
+    resetFixture(); rule = makeRule(1U);
+    rule.addActionStep(makeStep(1U, RuleBranch::THEN_BRANCH, true, 5U));
+    managerValue.add(rule); triggerQueueValue.enqueue(makeTrigger(1U, RuleBranch::THEN_BRANCH));
+    advanceToReady(); rule.thenSteps[0].delayBeforeMs = 6U; managerValue.update(rule);
+    executorValue.update(20U);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RuleExecutionResult::RULE_CHANGED_DURING_EXECUTION),
+        static_cast<uint8_t>(executorValue.getLastResult()));
+    TEST_ASSERT_TRUE(commandQueueValue.isEmpty());
+}
+
+void testOrderAndCommandMutationDetected()
+{
+    resetFixture(); Rule rule = makeRule(1U);
+    rule.addActionStep(makeStep(1U, RuleBranch::THEN_BRANCH));
+    rule.addActionStep(makeStep(2U, RuleBranch::THEN_BRANCH));
+    managerValue.add(rule); triggerQueueValue.enqueue(makeTrigger(1U, RuleBranch::THEN_BRANCH));
+    advanceToReady();
+    const RuleActionStep temporary = rule.thenSteps[0];
+    rule.thenSteps[0] = rule.thenSteps[1]; rule.thenSteps[1] = temporary;
+    managerValue.update(rule); executorValue.update(1U);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RuleExecutionResult::RULE_CHANGED_DURING_EXECUTION),
+        static_cast<uint8_t>(executorValue.getLastResult()));
+    TEST_ASSERT_TRUE(commandQueueValue.isEmpty());
+
+    resetFixture(); rule = makeRule(1U);
+    rule.addActionStep(makeStep(1U, RuleBranch::THEN_BRANCH));
+    managerValue.add(rule); triggerQueueValue.enqueue(makeTrigger(1U, RuleBranch::THEN_BRANCH));
+    advanceToReady(); rule.thenSteps[0].command.operation = CommandOperation::OFF;
+    managerValue.update(rule); executorValue.update(2U);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RuleExecutionResult::RULE_CHANGED_DURING_EXECUTION),
+        static_cast<uint8_t>(executorValue.getLastResult()));
+    TEST_ASSERT_TRUE(commandQueueValue.isEmpty());
+}
+
+void testMutationAfterSubmitAndReservedRange()
+{
+    resetFixture(); Rule rule = makeRule(1U);
+    rule.addActionStep(makeStep(1U, RuleBranch::THEN_BRANCH));
+    rule.addActionStep(makeStep(2U, RuleBranch::THEN_BRANCH));
+    managerValue.add(rule); triggerQueueValue.enqueue(makeTrigger(1U, RuleBranch::THEN_BRANCH));
+    idProviderValue.first = UINT32_MAX - 1U; advanceToReady(); executorValue.update(1U);
+    TEST_ASSERT_EQUAL_UINT32(1U, commandQueueValue.size());
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX - 1U, commandQueueValue.peek()->context.commandId);
+    rule.thenSteps[1].enabled = false; managerValue.update(rule); executorValue.update(2U);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RuleExecutionResult::RULE_CHANGED_DURING_EXECUTION),
+        static_cast<uint8_t>(executorValue.getLastResult()));
+    TEST_ASSERT_EQUAL_UINT32(1U, commandQueueValue.size());
+
+    resetFixture(); rule = makeRule(1U);
+    rule.addActionStep(makeStep(1U, RuleBranch::THEN_BRANCH));
+    rule.addActionStep(makeStep(2U, RuleBranch::THEN_BRANCH));
+    managerValue.add(rule); triggerQueueValue.enqueue(makeTrigger(1U, RuleBranch::THEN_BRANCH));
+    idProviderValue.first = UINT32_MAX - 1U; advanceToReady();
+    executorValue.update(3U); executorValue.update(4U);
+    TEST_ASSERT_EQUAL_UINT32(2U, commandQueueValue.size());
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX - 1U, commandQueueValue.getAt(0U)->context.commandId);
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, commandQueueValue.getAt(1U)->context.commandId);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RuleExecutionState::COMPLETED),
+        static_cast<uint8_t>(executorValue.getState()));
+}
+
 static_assert(sizeof(SceneExecutionQueueSink) <= 8U, "اندازه‌ی Adapter از هدف بیشتر است");
 static_assert(sizeof(RuleExecutor) < 256U, "اندازه‌ی RuleExecutor از هدف بیشتر است");
 
@@ -231,6 +307,9 @@ void setup()
     RUN_TEST(testEnabledStepsDelayAndMapping);
     RUN_TEST(testBackpressureRetryAndCancellation);
     RUN_TEST(testReservationFailuresAndRuleChange);
+    RUN_TEST(testBranchMutationBeforeFirstSubmit);
+    RUN_TEST(testOrderAndCommandMutationDetected);
+    RUN_TEST(testMutationAfterSubmitAndReservedRange);
     UNITY_END();
 }
 void loop() {}

@@ -34,7 +34,8 @@ enum class RuleExecutionResult : uint8_t
     SUCCESS = 0, INVALID_TRIGGER, INVALID_RULE_ID, INVALID_BRANCH, RULE_NOT_FOUND,
     RULE_DISABLED, RULE_INVALID, ACTION_NOT_FOUND, INVALID_ACTION,
     COMMAND_ID_RESERVATION_FAILED, INVALID_COMMAND_ID_RANGE, COMMAND_FACTORY_FAILED,
-    COMMAND_SINK_FULL, COMMAND_SINK_REJECTED, NOT_RUNNING, CANCELLED, QUEUE_EMPTY
+    COMMAND_SINK_FULL, COMMAND_SINK_REJECTED, NOT_RUNNING, CANCELLED, QUEUE_EMPTY,
+    RULE_CHANGED_DURING_EXECUTION
 };
 
 inline bool isValidRuleExecutionResult(RuleExecutionResult result)
@@ -52,7 +53,8 @@ inline bool isValidRuleExecutionResult(RuleExecutionResult result)
         case RuleExecutionResult::COMMAND_SINK_FULL:
         case RuleExecutionResult::COMMAND_SINK_REJECTED:
         case RuleExecutionResult::NOT_RUNNING: case RuleExecutionResult::CANCELLED:
-        case RuleExecutionResult::QUEUE_EMPTY: return true;
+        case RuleExecutionResult::QUEUE_EMPTY:
+        case RuleExecutionResult::RULE_CHANGED_DURING_EXECUTION: return true;
         default: return false;
     }
 }
