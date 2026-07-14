@@ -1,0 +1,18 @@
+#ifndef COMMAND_VALIDATION_COMMON_H
+#define COMMAND_VALIDATION_COMMON_H
+#include <CommandCommon.h>
+enum class CommandValidationResult:uint8_t{VALID=0,INVALID_COMMAND,INVALID_CONTEXT,INVALID_DOMAIN,
+ INVALID_DOMAIN_INDEX,INVALID_PATH,INVALID_QUERY,INVALID_OPERATION,DOMAIN_QUERY_MISMATCH,
+ DOMAIN_OPERATION_MISMATCH,DOMAIN_INDEX_REQUIRED,DOMAIN_INDEX_FORBIDDEN,ARGUMENT_COUNT_MISMATCH,
+ ARGUMENT_TYPE_MISMATCH,DURATION_REQUIRED,DURATION_NOT_ALLOWED,INVALID_DURATION,
+ CONFIRM_TOKEN_NOT_ALLOWED,UNSUPPORTED_COMMAND};
+inline bool isValidCommandValidationResult(CommandValidationResult v){switch(v){case CommandValidationResult::VALID:
+ case CommandValidationResult::INVALID_COMMAND:case CommandValidationResult::INVALID_CONTEXT:case CommandValidationResult::INVALID_DOMAIN:
+ case CommandValidationResult::INVALID_DOMAIN_INDEX:case CommandValidationResult::INVALID_PATH:case CommandValidationResult::INVALID_QUERY:
+ case CommandValidationResult::INVALID_OPERATION:case CommandValidationResult::DOMAIN_QUERY_MISMATCH:
+ case CommandValidationResult::DOMAIN_OPERATION_MISMATCH:case CommandValidationResult::DOMAIN_INDEX_REQUIRED:
+ case CommandValidationResult::DOMAIN_INDEX_FORBIDDEN:case CommandValidationResult::ARGUMENT_COUNT_MISMATCH:
+ case CommandValidationResult::ARGUMENT_TYPE_MISMATCH:case CommandValidationResult::DURATION_REQUIRED:
+ case CommandValidationResult::DURATION_NOT_ALLOWED:case CommandValidationResult::INVALID_DURATION:
+ case CommandValidationResult::CONFIRM_TOKEN_NOT_ALLOWED:case CommandValidationResult::UNSUPPORTED_COMMAND:return true;default:return false;}}
+#endif
