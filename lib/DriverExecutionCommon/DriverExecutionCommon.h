@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <math.h>
 
 #include <DeviceCommon.h>
 
@@ -37,7 +38,8 @@ enum class DriverExecutionResult : uint8_t
     DRIVER_OFFLINE,
     DRIVER_ERROR,
     REMOTE_BINDING_NOT_SUPPORTED,
-    OUTPUT_VALUE_INVALID
+    OUTPUT_VALUE_INVALID,
+    INPUT_VALUE_INVALID
 };
 
 inline bool isValidDriverExecutionResult(DriverExecutionResult result)
@@ -71,6 +73,7 @@ inline bool isValidDriverExecutionResult(DriverExecutionResult result)
         case DriverExecutionResult::DRIVER_ERROR:
         case DriverExecutionResult::REMOTE_BINDING_NOT_SUPPORTED:
         case DriverExecutionResult::OUTPUT_VALUE_INVALID:
+        case DriverExecutionResult::INPUT_VALUE_INVALID:
             return true;
         default:
             return false;
@@ -80,6 +83,29 @@ inline bool isValidDriverExecutionResult(DriverExecutionResult result)
 inline bool isDriverExecutionSuccess(DriverExecutionResult result)
 {
     return result == DriverExecutionResult::SUCCESS;
+}
+
+inline bool isValidDriverDeviceValue(const DeviceValue& value)
+{
+    if (!value.valid)
+        return value.type == DeviceValueType::NONE;
+    if (!isValidDeviceValueType(value.type) || value.type == DeviceValueType::NONE)
+        return false;
+
+    switch (value.type)
+    {
+        case DeviceValueType::BOOLEAN:
+        case DeviceValueType::INTEGER:
+        case DeviceValueType::ENUM_VALUE:
+            return true;
+        case DeviceValueType::FLOAT:
+            return isfinite(value.floatValue);
+        case DeviceValueType::PERCENTAGE:
+            return value.percentageValue <= 100U;
+        case DeviceValueType::NONE:
+        default:
+            return false;
+    }
 }
 
 enum class DriverPortDirection : uint8_t
@@ -141,8 +167,7 @@ struct DriverActionRequest
     {
         if (!isValidAction(action) || action == DeviceAction::NONE)
             return false;
-        if (hasValue ? !value.valid || !isValidDeviceValueType(value.type) ||
-                           value.type == DeviceValueType::NONE
+        if (hasValue ? !value.valid || !isValidDriverDeviceValue(value)
                      : value.valid || value.type != DeviceValueType::NONE)
             return false;
         return hasDuration || durationMs == 0U;
@@ -174,8 +199,7 @@ struct DriverExecutionResponse
         if (!isValidDriverExecutionResult(result) || !isValidDriverPortHealth(portHealth))
             return false;
         return hasActualValue
-            ? actualValue.valid && actualValue.type != DeviceValueType::NONE &&
-                  isValidDeviceValueType(actualValue.type)
+            ? actualValue.valid && isValidDriverDeviceValue(actualValue)
             : !actualValue.valid && actualValue.type == DeviceValueType::NONE;
     }
 

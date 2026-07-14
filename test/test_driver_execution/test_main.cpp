@@ -145,6 +145,66 @@ void test_request_and_response_contracts()
     TEST_ASSERT_FALSE(response.isValid());
 }
 
+void test_driver_device_value_semantics()
+{
+    DeviceValue value;
+    TEST_ASSERT_TRUE(isValidDriverDeviceValue(value));
+    value.type = DeviceValueType::BOOLEAN;
+    TEST_ASSERT_FALSE(isValidDriverDeviceValue(value));
+    value.valid = true;
+    value.type = DeviceValueType::NONE;
+    TEST_ASSERT_FALSE(isValidDriverDeviceValue(value));
+    TEST_ASSERT_TRUE(isValidDriverDeviceValue(DeviceValue::makeBoolean(true)));
+    TEST_ASSERT_TRUE(isValidDriverDeviceValue(DeviceValue::makeInteger(-1)));
+    TEST_ASSERT_TRUE(isValidDriverDeviceValue(DeviceValue::makeFloat(1.25f)));
+
+    value = DeviceValue::makeFloat(1.0f);
+    value.floatValue = NAN;
+    TEST_ASSERT_FALSE(isValidDriverDeviceValue(value));
+    value.floatValue = INFINITY;
+    TEST_ASSERT_FALSE(isValidDriverDeviceValue(value));
+    value.floatValue = -INFINITY;
+    TEST_ASSERT_FALSE(isValidDriverDeviceValue(value));
+    TEST_ASSERT_TRUE(isValidDriverDeviceValue(DeviceValue::makePercentage(0)));
+    TEST_ASSERT_TRUE(isValidDriverDeviceValue(DeviceValue::makePercentage(100)));
+    value = DeviceValue::makePercentage(100);
+    value.percentageValue = 101U;
+    TEST_ASSERT_FALSE(isValidDriverDeviceValue(value));
+    TEST_ASSERT_TRUE(isValidDriverDeviceValue(DeviceValue::makeEnum(7)));
+}
+
+void test_request_response_reject_malformed_values()
+{
+    DriverActionRequest request;
+    request.action = DeviceAction::SET_LEVEL;
+    request.hasValue = true;
+    request.value = DeviceValue::makeFloat(1.0f);
+    request.value.floatValue = NAN;
+    TEST_ASSERT_FALSE(request.isValid());
+    request.value = DeviceValue::makePercentage(100);
+    request.value.percentageValue = 200U;
+    TEST_ASSERT_FALSE(request.isValid());
+    request.hasValue = false;
+    TEST_ASSERT_FALSE(request.isValid());
+    request.value.clear();
+    request.hasValue = true;
+    request.value = DeviceValue::makePercentage(50);
+    TEST_ASSERT_TRUE(request.isValid());
+
+    DriverExecutionResponse response;
+    response.result = DriverExecutionResult::SUCCESS;
+    response.portHealth = DriverPortHealth::READY;
+    response.hasActualValue = true;
+    response.actualValue = DeviceValue::makeFloat(1.0f);
+    response.actualValue.floatValue = NAN;
+    TEST_ASSERT_FALSE(response.isValid());
+    response.actualValue = DeviceValue::makePercentage(100);
+    response.actualValue.percentageValue = 200U;
+    TEST_ASSERT_FALSE(response.isValid());
+    response.hasActualValue = false;
+    TEST_ASSERT_FALSE(response.isValid());
+}
+
 void test_resolver_registration_resolution_and_removal()
 {
     StaticDriverBindingResolver resolver(1U);
@@ -238,13 +298,85 @@ void test_input_manager_read_and_atomic_failure()
     TEST_ASSERT_EQUAL_UINT32(88U, output.timestampMs);
 }
 
+void test_managers_reject_malformed_driver_values()
+{
+    StaticDriverBindingResolver resolver(1U);
+    FakeOutputDriverPort outputPort;
+    outputPort.driverType = DriverType::ANALOG_OUTPUT;
+    outputPort.valueType = DeviceValueType::FLOAT;
+    addAction(outputPort.supportedActions, DeviceAction::ON);
+    const DeviceBinding outputBinding = binding(1U, DriverType::ANALOG_OUTPUT, 0U, 1U);
+    TEST_ASSERT_EQUAL_UINT8(0U,
+        static_cast<uint8_t>(resolver.registerOutput(outputBinding, outputPort)));
+    Device outputDevice = device(3U, outputBinding);
+    DeviceTemplate outputTemplate = deviceTemplate(
+        3U, DriverType::ANALOG_OUTPUT, DeviceValueType::FLOAT
+    );
+    OutputManager outputManager(resolver);
+    DriverActionRequest request;
+    request.action = DeviceAction::ON;
+    DriverExecutionResponse response;
+    response.completedTimestampMs = 71U;
+    outputPort.actualValue = DeviceValue::makeFloat(1.0f);
+    outputPort.actualValue.floatValue = NAN;
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DriverExecutionResult::OUTPUT_VALUE_INVALID),
+        static_cast<uint8_t>(outputManager.execute(
+            outputDevice, outputTemplate, request, response
+        )));
+    TEST_ASSERT_EQUAL_UINT32(71U, response.completedTimestampMs);
+    outputPort.valueType = DeviceValueType::PERCENTAGE;
+    outputTemplate.valueType = DeviceValueType::PERCENTAGE;
+    outputPort.actualValue = DeviceValue::makePercentage(100);
+    outputPort.actualValue.percentageValue = 200U;
+    DeviceValue readOutput = DeviceValue::makePercentage(25, 73U);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DriverExecutionResult::OUTPUT_VALUE_INVALID),
+        static_cast<uint8_t>(outputManager.readActualValue(
+            outputDevice, outputTemplate, readOutput
+        )));
+    TEST_ASSERT_EQUAL_UINT32(73U, readOutput.timestampMs);
+
+    FakeInputDriverPort inputPort;
+    inputPort.driverType = DriverType::ANALOG_INPUT;
+    inputPort.valueType = DeviceValueType::FLOAT;
+    const DeviceBinding inputBinding = binding(1U, DriverType::ANALOG_INPUT, 0U, 1U);
+    TEST_ASSERT_EQUAL_UINT8(0U,
+        static_cast<uint8_t>(resolver.registerInput(inputBinding, inputPort)));
+    Device inputDevice = device(4U, inputBinding);
+    DeviceTemplate inputTemplate = deviceTemplate(
+        4U, DriverType::ANALOG_INPUT, DeviceValueType::FLOAT
+    );
+    InputManager inputManager(resolver);
+    DeviceValue output = DeviceValue::makeFloat(2.0f, 72U);
+    inputPort.value = DeviceValue::makeFloat(1.0f);
+    inputPort.value.floatValue = INFINITY;
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DriverExecutionResult::INPUT_VALUE_INVALID),
+        static_cast<uint8_t>(inputManager.read(inputDevice, inputTemplate, output)));
+    TEST_ASSERT_EQUAL_UINT32(72U, output.timestampMs);
+    inputPort.valueType = DeviceValueType::PERCENTAGE;
+    inputTemplate.valueType = DeviceValueType::PERCENTAGE;
+    inputPort.value = DeviceValue::makePercentage(100);
+    inputPort.value.percentageValue = 200U;
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DriverExecutionResult::INPUT_VALUE_INVALID),
+        static_cast<uint8_t>(inputManager.read(inputDevice, inputTemplate, output)));
+    TEST_ASSERT_EQUAL_UINT32(72U, output.timestampMs);
+    inputPort.valueType = DeviceValueType::FLOAT;
+    inputTemplate.valueType = DeviceValueType::FLOAT;
+    inputPort.value = DeviceValue::makeInteger(5);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(DriverExecutionResult::VALUE_TYPE_MISMATCH),
+        static_cast<uint8_t>(inputManager.read(inputDevice, inputTemplate, output)));
+    TEST_ASSERT_EQUAL_UINT32(72U, output.timestampMs);
+}
+
 void setup()
 {
     UNITY_BEGIN();
     RUN_TEST(test_request_and_response_contracts);
+    RUN_TEST(test_driver_device_value_semantics);
+    RUN_TEST(test_request_response_reject_malformed_values);
     RUN_TEST(test_resolver_registration_resolution_and_removal);
     RUN_TEST(test_output_manager_validation_health_duration_and_atomicity);
     RUN_TEST(test_input_manager_read_and_atomic_failure);
+    RUN_TEST(test_managers_reject_malformed_driver_values);
     UNITY_END();
 }
 

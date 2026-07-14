@@ -53,9 +53,11 @@ DriverExecutionResult InputManager::read(
     result = port->read(temporary);
     if (result != DriverExecutionResult::SUCCESS)
         return result;
-    if (!temporary.valid || temporary.type != deviceTemplate.valueType ||
+    if (!isValidDriverDeviceValue(temporary) || !temporary.valid)
+        return DriverExecutionResult::INPUT_VALUE_INVALID;
+    if (temporary.type != deviceTemplate.valueType ||
         temporary.type != port->getValueType())
-        return DriverExecutionResult::OUTPUT_VALUE_INVALID;
+        return DriverExecutionResult::VALUE_TYPE_MISMATCH;
 
     output = temporary;
     return DriverExecutionResult::SUCCESS;
