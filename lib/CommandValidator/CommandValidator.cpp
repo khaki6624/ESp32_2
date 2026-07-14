@@ -22,7 +22,9 @@ CommandValidationResult CommandValidator::validateAction(const Command& c)const
  case CommandDomain::SYS:case CommandDomain::STORE:case CommandDomain::TIME:case CommandDomain::LOG:case CommandDomain::EVENT:forbidden=true;break;
  case CommandDomain::SMS:required=c.operation==CommandOperation::SEND;forbidden=!required;break;
  case CommandDomain::CALL:required=c.operation==CommandOperation::START;forbidden=c.operation==CommandOperation::STOP;break;
- case CommandDomain::USER:required=true;break;default:break;}
+ case CommandDomain::USER:required=c.operation==CommandOperation::ADD||
+  c.operation==CommandOperation::DELETE_ITEM||c.operation==CommandOperation::ENABLE||
+  c.operation==CommandOperation::DISABLE;forbidden=c.operation==CommandOperation::CLAIM;break;default:break;}
  if(required&&!c.hasDomainIndex)return CommandValidationResult::DOMAIN_INDEX_REQUIRED;if(forbidden&&c.hasDomainIndex)return CommandValidationResult::DOMAIN_INDEX_FORBIDDEN;
  bool compatible=false;switch(c.domain){case CommandDomain::OUT:compatible=c.operation==CommandOperation::ON||c.operation==CommandOperation::OFF||c.operation==CommandOperation::TOGGLE||c.operation==CommandOperation::PULSE;break;
  case CommandDomain::IN:case CommandDomain::ADC:compatible=false;break;case CommandDomain::IR:case CommandDomain::RF:compatible=c.operation==CommandOperation::LEARN||c.operation==CommandOperation::SEND||c.operation==CommandOperation::DELETE_ITEM;break;
@@ -46,5 +48,5 @@ CommandValidationResult CommandValidator::validateAction(const Command& c)const
 bool CommandValidator::determineRisk(const Command& c,CommandRisk& r)const
 {if(c.isQuery()||(c.domain==CommandDomain::NODE&&(c.operation==CommandOperation::PING||c.operation==CommandOperation::DISCOVER))||(c.domain==CommandDomain::SYS&&c.operation==CommandOperation::HEALTH)){r=CommandRisk::SAFE;return true;}
  if((c.domain==CommandDomain::NODE&&c.operation==CommandOperation::REBOOT)||(c.domain==CommandDomain::SYS&&(c.operation==CommandOperation::REBOOT||c.operation==CommandOperation::FACTORY||c.operation==CommandOperation::OTA))||(c.domain==CommandDomain::STORE&&(c.operation==CommandOperation::CLEAR||c.operation==CommandOperation::RESTORE))||(c.domain==CommandDomain::CFG&&(c.operation==CommandOperation::RESET||c.operation==CommandOperation::RESTORE||c.operation==CommandOperation::IMPORT_DATA))){r=CommandRisk::DANGEROUS;return true;}
- if(((c.domain==CommandDomain::IR||c.domain==CommandDomain::RF)&&(c.operation==CommandOperation::LEARN||c.operation==CommandOperation::DELETE_ITEM))||(c.domain==CommandDomain::USER&&(c.operation==CommandOperation::ADD||c.operation==CommandOperation::DELETE_ITEM||c.operation==CommandOperation::ENABLE||c.operation==CommandOperation::DISABLE))||(c.domain==CommandDomain::RULE&&c.operation==CommandOperation::DELETE_ITEM)||(c.domain==CommandDomain::SCH&&c.operation==CommandOperation::DELETE_ITEM)){r=CommandRisk::SENSITIVE;return true;}
+ if(((c.domain==CommandDomain::IR||c.domain==CommandDomain::RF)&&(c.operation==CommandOperation::LEARN||c.operation==CommandOperation::DELETE_ITEM))||(c.domain==CommandDomain::USER&&(c.operation==CommandOperation::CLAIM||c.operation==CommandOperation::ADD||c.operation==CommandOperation::DELETE_ITEM||c.operation==CommandOperation::ENABLE||c.operation==CommandOperation::DISABLE))||(c.domain==CommandDomain::RULE&&c.operation==CommandOperation::DELETE_ITEM)||(c.domain==CommandDomain::SCH&&c.operation==CommandOperation::DELETE_ITEM)){r=CommandRisk::SENSITIVE;return true;}
  r=CommandRisk::ACTION;return true;}

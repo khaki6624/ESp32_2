@@ -44,5 +44,22 @@ void testValidatorPoliciesAndRisk(){Command c;TEST_ASSERT_TRUE(parse("OUT1?",c)=
 void testValidatorAtomicity(){Command c;TEST_ASSERT_TRUE(parse("OUT=ON",c)==CommandParseResult::SUCCESS);c.context.risk=CommandRisk::SENSITIVE;
  TEST_ASSERT_TRUE(validatorValue.validate(c)!=CommandValidationResult::VALID);TEST_ASSERT_TRUE(c.context.risk==CommandRisk::SENSITIVE);
  TEST_ASSERT_TRUE(parse("OUT1=ON",c)==CommandParseResult::SUCCESS);TEST_ASSERT_TRUE(validatorValue.validate(c)==CommandValidationResult::VALID);TEST_ASSERT_TRUE(c.context.risk==CommandRisk::ACTION);}
+void testUserClaimAndIndexedOperations(){Command c;TEST_ASSERT_TRUE(parse("USER=CLAIM",c)==CommandParseResult::SUCCESS);
+ TEST_ASSERT_TRUE(validatorValue.validate(c)==CommandValidationResult::VALID);TEST_ASSERT_TRUE(c.context.risk==CommandRisk::SENSITIVE);
+ TEST_ASSERT_TRUE(parse("USER1=CLAIM",c)==CommandParseResult::SUCCESS);TEST_ASSERT_TRUE(validatorValue.validate(c)==CommandValidationResult::DOMAIN_INDEX_FORBIDDEN);
+ const char* missing[]={"USER=ADD","USER=DEL","USER=ENABLE","USER=DISABLE"};
+ const char* indexed[]={"USER1=ADD","USER1=DEL","USER1=ENABLE","USER1=DISABLE"};
+ for(size_t i=0U;i<4U;++i){TEST_ASSERT_TRUE(parse(missing[i],c)==CommandParseResult::SUCCESS);
+  TEST_ASSERT_TRUE(validatorValue.validate(c)==CommandValidationResult::DOMAIN_INDEX_REQUIRED);
+  TEST_ASSERT_TRUE(parse(indexed[i],c)==CommandParseResult::SUCCESS);
+  TEST_ASSERT_TRUE(validatorValue.validate(c)==CommandValidationResult::VALID);TEST_ASSERT_TRUE(c.context.risk==CommandRisk::SENSITIVE);}}
+void testExplicitDomainMapping(){struct DomainCase{const char* text;CommandDomain domain;};static const DomainCase cases[]={
+ {"OUT?",CommandDomain::OUT},{"IN?",CommandDomain::IN},{"ADC?",CommandDomain::ADC},{"IR?",CommandDomain::IR},
+ {"RF?",CommandDomain::RF},{"NODE?",CommandDomain::NODE},{"CFG?",CommandDomain::CFG},{"SCN?",CommandDomain::SCN},
+ {"RULE?",CommandDomain::RULE},{"SCH?",CommandDomain::SCH},{"SYS?",CommandDomain::SYS},{"NET?",CommandDomain::NET},
+ {"SMS?",CommandDomain::SMS},{"CALL?",CommandDomain::CALL},{"LOG?",CommandDomain::LOG},{"STORE?",CommandDomain::STORE},
+ {"TEST?",CommandDomain::TEST},{"EVENT?",CommandDomain::EVENT},{"TIME?",CommandDomain::TIME},{"USER?",CommandDomain::USER}};
+ Command c;for(size_t i=0U;i<sizeof(cases)/sizeof(cases[0]);++i){TEST_ASSERT_TRUE(parse(cases[i].text,c)==CommandParseResult::SUCCESS);
+  TEST_ASSERT_TRUE(c.domain==cases[i].domain);}TEST_ASSERT_TRUE(parse("user?",c)==CommandParseResult::SUCCESS);TEST_ASSERT_TRUE(c.domain==CommandDomain::USER);}
 static_assert(sizeof(CommandTextReader)<=16U,"Reader بزرگ است");static_assert(sizeof(CommandParser)<=4U,"Parser بزرگ است");static_assert(sizeof(CommandValidator)<=4U,"Validator بزرگ است");
-void setup(){UNITY_BEGIN();RUN_TEST(testReader);RUN_TEST(testDuration);RUN_TEST(testQueryAndActionParsing);RUN_TEST(testParserFailuresAreAtomic);RUN_TEST(testValidatorPoliciesAndRisk);RUN_TEST(testValidatorAtomicity);UNITY_END();}void loop(){}
+void setup(){UNITY_BEGIN();RUN_TEST(testReader);RUN_TEST(testDuration);RUN_TEST(testQueryAndActionParsing);RUN_TEST(testParserFailuresAreAtomic);RUN_TEST(testValidatorPoliciesAndRisk);RUN_TEST(testValidatorAtomicity);RUN_TEST(testUserClaimAndIndexedOperations);RUN_TEST(testExplicitDomainMapping);UNITY_END();}void loop(){}

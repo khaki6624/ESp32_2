@@ -6,8 +6,22 @@ namespace
 {
 char upper(char c){return c>='a'&&c<='z'?static_cast<char>(c-32):c;}
 bool equalWord(const char* a,const char* b){size_t i=0U;while(a[i]&&b[i]){if(upper(a[i])!=b[i])return false;++i;}return a[i]=='\0'&&b[i]=='\0';}
-bool mapDomain(const char* n,CommandDomain& out){const char* names[]={"OUT","IN","ADC","IR","RF","NODE","CFG","SCN","RULE","SCH","SYS","NET","SMS","CALL","LOG","STORE","TEST","EVENT","TIME","USER"};
- for(uint8_t i=0U;i<20U;++i)if(equalWord(n,names[i])){out=static_cast<CommandDomain>(i+1U);return true;}return false;}
+bool mapDomain(const char* n,CommandDomain& out)
+{
+ struct DomainPair{const char* name;CommandDomain domain;};
+ static const DomainPair domains[]={
+  {"OUT",CommandDomain::OUT},{"IN",CommandDomain::IN},{"ADC",CommandDomain::ADC},
+  {"IR",CommandDomain::IR},{"RF",CommandDomain::RF},{"NODE",CommandDomain::NODE},
+  {"CFG",CommandDomain::CFG},{"SCN",CommandDomain::SCN},{"RULE",CommandDomain::RULE},
+  {"SCH",CommandDomain::SCH},{"SYS",CommandDomain::SYS},{"NET",CommandDomain::NET},
+  {"SMS",CommandDomain::SMS},{"CALL",CommandDomain::CALL},{"LOG",CommandDomain::LOG},
+  {"STORE",CommandDomain::STORE},{"TEST",CommandDomain::TEST},{"EVENT",CommandDomain::EVENT},
+  {"TIME",CommandDomain::TIME},{"USER",CommandDomain::USER}};
+ for(size_t i=0U;i<sizeof(domains)/sizeof(domains[0]);++i)if(equalWord(n,domains[i].name))
+  {if(!isValidCommandDomain(domains[i].domain)||domains[i].domain==CommandDomain::NONE)return false;
+   out=domains[i].domain;return true;}
+ return false;
+}
 bool mapOperation(const char* n,CommandOperation& o){struct Pair{const char* n;CommandOperation o;};static const Pair p[]={
  {"READ",CommandOperation::READ},{"ON",CommandOperation::ON},{"OFF",CommandOperation::OFF},{"TOGGLE",CommandOperation::TOGGLE},{"PULSE",CommandOperation::PULSE},
  {"LEARN",CommandOperation::LEARN},{"SEND",CommandOperation::SEND},{"DEL",CommandOperation::DELETE_ITEM},{"PING",CommandOperation::PING},
