@@ -9,7 +9,7 @@ namespace
         Command result;
         result.context.commandId = 10U;
         result.context.request.requestId = 20U;
-        result.context.request.source = CommandSource::SERIAL;
+        result.context.request.source = static_cast<CommandSource>(5U);
         result.context.createdTimestampMs = 30U;
         result.domain = domain;
         result.domainIndex = 1U;
@@ -30,11 +30,33 @@ namespace
         return result;
     }
 
+    CommandResult makeFailedResult(const Command& command)
+    {
+        CommandResult result;
+        result.commandId = command.context.commandId;
+        result.requestId = command.context.request.requestId;
+        result.transitionTo(ExecutionStatus::VALIDATING, 1U);
+        result.transitionTo(ExecutionStatus::ACCEPTED, 2U);
+        result.transitionTo(ExecutionStatus::EXECUTING, 3U);
+        result.transitionTo(ExecutionStatus::FAILED, 4U,
+                            CommandErrorCode::HARDWARE_FAILURE);
+        return result;
+    }
+
+    enum class FakeResultMode : uint8_t
+    {
+        CORRECT,
+        WRONG_COMMAND_ID,
+        WRONG_REQUEST_ID,
+        FAILED_RESULT
+    };
+
     class FakeHandler final : public CommandHandler
     {
     public:
         CommandDomain domain = CommandDomain::OUT;
         CommandDispatchResult result = CommandDispatchResult::SUCCESS;
+        FakeResultMode resultMode = FakeResultMode::CORRECT;
         mutable uint16_t supportsCount = 0U;
         mutable uint16_t handleCount = 0U;
 
@@ -51,7 +73,12 @@ namespace
             ++handleCount;
             if (result != CommandDispatchResult::SUCCESS)
                 return result;
-            output = makeSuccessResult(command);
+            output = resultMode == FakeResultMode::FAILED_RESULT
+                ? makeFailedResult(command) : makeSuccessResult(command);
+            if (resultMode == FakeResultMode::WRONG_COMMAND_ID)
+                ++output.commandId;
+            else if (resultMode == FakeResultMode::WRONG_REQUEST_ID)
+                ++output.requestId;
             return CommandDispatchResult::SUCCESS;
         }
     };
@@ -74,7 +101,7 @@ namespace
 void setUp() {}
 void tearDown() {}
 
-void test_dispatcher_registration_and_sparse_removal()
+void test_dispatcher_registration_and_ordered_removal()
 {
     CommandDispatcher dispatcher;
     FakeHandler handlers[9];
@@ -127,6 +154,61 @@ void test_dispatcher_routes_once_and_is_atomic()
         static_cast<uint8_t>(CommandDispatchResult::HANDLER_NOT_FOUND),
         static_cast<uint8_t>(dispatcher.dispatch(makeCommand(CommandDomain::NODE), output))
     );
+}
+
+void test_dispatcher_preserves_registration_order()
+{
+    CommandDispatcher dispatcher;
+    FakeHandler h1;
+    FakeHandler h2;
+    FakeHandler h3;
+    dispatcher.registerHandler(h1);
+    dispatcher.registerHandler(h2);
+    dispatcher.unregisterHandler(h1);
+    dispatcher.registerHandler(h3);
+    CommandResult output;
+    TEST_ASSERT_EQUAL_UINT8(0U,
+        static_cast<uint8_t>(dispatcher.dispatch(makeCommand(), output)));
+    TEST_ASSERT_EQUAL_UINT16(1U, h2.handleCount);
+    TEST_ASSERT_EQUAL_UINT16(0U, h3.handleCount);
+
+    dispatcher.clear();
+    h1.handleCount = h2.handleCount = h3.handleCount = 0U;
+    dispatcher.registerHandler(h1);
+    dispatcher.registerHandler(h2);
+    dispatcher.registerHandler(h3);
+    dispatcher.unregisterHandler(h2);
+    dispatcher.unregisterHandler(h1);
+    TEST_ASSERT_EQUAL_UINT8(0U,
+        static_cast<uint8_t>(dispatcher.dispatch(makeCommand(), output)));
+    TEST_ASSERT_EQUAL_UINT16(1U, h3.handleCount);
+}
+
+void test_dispatcher_rejects_invalid_success_results_atomically()
+{
+    CommandDispatcher dispatcher;
+    FakeHandler handler;
+    dispatcher.registerHandler(handler);
+    const FakeResultMode modes[] = {
+        FakeResultMode::WRONG_COMMAND_ID,
+        FakeResultMode::WRONG_REQUEST_ID,
+        FakeResultMode::FAILED_RESULT
+    };
+    for (FakeResultMode mode : modes)
+    {
+        handler.resultMode = mode;
+        CommandResult output;
+        output.commandId = 99U;
+        TEST_ASSERT_EQUAL_UINT8(
+            static_cast<uint8_t>(CommandDispatchResult::RESULT_INVALID),
+            static_cast<uint8_t>(dispatcher.dispatch(makeCommand(), output)));
+        TEST_ASSERT_EQUAL_UINT32(99U, output.commandId);
+    }
+    handler.resultMode = FakeResultMode::CORRECT;
+    CommandResult output;
+    TEST_ASSERT_EQUAL_UINT8(0U,
+        static_cast<uint8_t>(dispatcher.dispatch(makeCommand(), output)));
+    TEST_ASSERT_TRUE(output.isSuccess());
 }
 
 void test_executor_success_state_machine()
@@ -205,13 +287,48 @@ void test_executor_gate_and_dispatch_failures()
     TEST_ASSERT_FALSE(executor.hasLastCommandResult());
 }
 
+void test_executor_rejects_bad_result_without_reexecution()
+{
+    SceneExecutionQueue queue;
+    CommandValidator validator;
+    FakeGate gate;
+    FakeHandler handler;
+    handler.resultMode = FakeResultMode::WRONG_COMMAND_ID;
+    CommandDispatcher dispatcher;
+    dispatcher.registerHandler(handler);
+    CommandExecutor executor(queue, validator, gate, dispatcher);
+    const Command command = makeCommand();
+    queue.enqueue(command);
+    for (uint32_t now = 1U; now <= 5U; ++now)
+        executor.update(now);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(CommandExecutorState::FAILED),
+        static_cast<uint8_t>(executor.getState()));
+    TEST_ASSERT_EQUAL_UINT8(
+        static_cast<uint8_t>(CommandExecutorResult::COMMAND_RESULT_INVALID),
+        static_cast<uint8_t>(executor.getLastResult()));
+    TEST_ASSERT_EQUAL_UINT16(1U, handler.handleCount);
+    const CommandResult* result = executor.getLastCommandResult();
+    TEST_ASSERT_NOT_NULL(result);
+    TEST_ASSERT_EQUAL_UINT32(command.context.commandId, result->commandId);
+    TEST_ASSERT_EQUAL_UINT32(command.context.request.requestId, result->requestId);
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(ExecutionStatus::FAILED),
+        static_cast<uint8_t>(result->status));
+    TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(CommandErrorCode::HARDWARE_FAILURE),
+        static_cast<uint8_t>(result->errorCode));
+    executor.update(6U);
+    TEST_ASSERT_EQUAL_UINT16(1U, handler.handleCount);
+}
+
 void setup()
 {
     UNITY_BEGIN();
-    RUN_TEST(test_dispatcher_registration_and_sparse_removal);
+    RUN_TEST(test_dispatcher_registration_and_ordered_removal);
     RUN_TEST(test_dispatcher_routes_once_and_is_atomic);
+    RUN_TEST(test_dispatcher_preserves_registration_order);
+    RUN_TEST(test_dispatcher_rejects_invalid_success_results_atomically);
     RUN_TEST(test_executor_success_state_machine);
     RUN_TEST(test_executor_gate_and_dispatch_failures);
+    RUN_TEST(test_executor_rejects_bad_result_without_reexecution);
     UNITY_END();
 }
 

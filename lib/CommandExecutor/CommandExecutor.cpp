@@ -162,6 +162,19 @@ void CommandExecutor::update(uint32_t nowMs)
             );
             if (dispatchResult != CommandDispatchResult::SUCCESS)
             {
+                if (dispatchResult == CommandDispatchResult::RESULT_INVALID)
+                {
+                    storeFailureResult(
+                        nowMs,
+                        ExecutionStatus::FAILED,
+                        CommandErrorCode::HARDWARE_FAILURE
+                    );
+                    finish(
+                        CommandExecutorState::FAILED,
+                        CommandExecutorResult::COMMAND_RESULT_INVALID
+                    );
+                    return;
+                }
                 const bool stored = storeFailureResult(
                     nowMs, ExecutionStatus::FAILED, mapDispatchError(dispatchResult)
                 );
@@ -172,7 +185,10 @@ void CommandExecutor::update(uint32_t nowMs)
                 );
                 return;
             }
-            if (!temporary.isValid() || !temporary.isTerminal())
+            if (!temporary.isValid() || !temporary.isTerminal() ||
+                !temporary.isSuccess() ||
+                temporary.commandId != currentCommand_.context.commandId ||
+                temporary.requestId != currentCommand_.context.request.requestId)
             {
                 storeFailureResult(
                     nowMs, ExecutionStatus::FAILED, CommandErrorCode::HARDWARE_FAILURE

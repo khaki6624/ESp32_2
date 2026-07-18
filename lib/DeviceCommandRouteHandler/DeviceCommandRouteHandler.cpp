@@ -49,7 +49,9 @@ CommandDispatchResult DeviceCommandRouteHandler::handle(
     const CommandDispatchResult mapped = mapDeviceHandlerResult(result);
     if (mapped != CommandDispatchResult::SUCCESS)
         return mapped;
-    if (!temporary.isValid() || !temporary.isTerminal())
+    if (!temporary.isValid() || !temporary.isTerminal() || !temporary.isSuccess() ||
+        temporary.commandId != command.context.commandId ||
+        temporary.requestId != command.context.request.requestId)
         return CommandDispatchResult::RESULT_INVALID;
     output = temporary;
     return CommandDispatchResult::SUCCESS;
