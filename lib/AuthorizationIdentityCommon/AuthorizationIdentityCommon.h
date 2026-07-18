@@ -19,14 +19,20 @@ enum class Permission : uint8_t
 inline bool isValidPermission(Permission permission)
 { return static_cast<uint8_t>(permission)<static_cast<uint8_t>(Permission::COUNT); }
 inline PermissionMask permissionToMask(Permission permission)
-{ return isValidPermission(permission)?(1ULL<<static_cast<uint8_t>(permission)):NO_PERMISSIONS; }
+{
+    static_assert(static_cast<uint8_t>(Permission::COUNT)<=64U,"Permission count exceeds PermissionMask capacity");
+    if(!isValidPermission(permission))return NO_PERMISSIONS;
+    return PermissionMask{1ULL}<<static_cast<uint8_t>(permission);
+}
 inline bool hasPermission(PermissionMask mask,Permission permission)
 { const PermissionMask bit=permissionToMask(permission);return bit!=NO_PERMISSIONS&&(mask&bit)!=0ULL; }
 inline bool isValidPermissionMask(PermissionMask mask)
 {
     constexpr uint8_t count=static_cast<uint8_t>(Permission::COUNT);
-    const PermissionMask valid=(1ULL<<count)-1ULL;
-    return (mask&~valid)==0ULL;
+    static_assert(count<=64U,"Permission count exceeds PermissionMask capacity");
+    if(count==64U)return true;
+    const PermissionMask validMask=(PermissionMask{1ULL}<<count)-PermissionMask{1ULL};
+    return (mask&~validMask)==NO_PERMISSIONS;
 }
 
 enum class AuthorizationSubjectType : uint8_t { NONE=0, USER, SYSTEM };

@@ -2,6 +2,29 @@
 
 namespace
 {
+bool isContextStructurallyValidExcludingRisk(const CommandContext& context)
+{
+    return context.commandId!=INVALID_COMMAND_ID&&context.request.isValid()&&
+           isValidCommandPriority(context.priority)&&context.retryCount<=context.maxRetries;
+}
+
+bool isStructurallyValidExcludingRisk(const Command& command)
+{
+    if(!isContextStructurallyValidExcludingRisk(command.context)||
+       command.domain==CommandDomain::NONE||!isValidCommandDomain(command.domain)||
+       !command.path.isValid()||!isValidCommandQueryType(command.queryType)||
+       !isValidCommandOperation(command.operation)||command.argumentCount>COMMAND_MAX_ARGUMENTS||
+       !CommandText::isCanonical(command.originalText,sizeof(command.originalText)))return false;
+    if((command.hasDomainIndex&&command.domainIndex==0U)||
+       (!command.hasDomainIndex&&command.domainIndex!=0U))return false;
+    for(size_t i=0U;i<command.argumentCount;++i)
+        if(!command.arguments[i].isValid())return false;
+    if(command.queryType!=CommandQueryType::NONE)
+        return command.operation==CommandOperation::NONE&&command.argumentCount==0U&&
+               !command.hasDurationValue;
+    return command.operation!=CommandOperation::NONE;
+}
+
 bool resolvePermission(const Command& command,Permission& output)
 {
     switch(command.domain)
@@ -34,9 +57,7 @@ RuntimeAuthorizationPolicy::RuntimeAuthorizationPolicy(const AuthorizationSubjec
 
 AuthorizationCheckResult RuntimeAuthorizationPolicy::check(const Command& command,uint32_t nowMs)const
 {
-    // برای تفکیک Risk نامعتبر از سایر خطاهای ساختاری، فقط Copy محلی اعتبارسنجی می‌شود.
-    Command structural=command;structural.context.risk=CommandRisk::SAFE;
-    if(!structural.isValid())return AuthorizationCheckResult::INVALID_REQUEST;
+    if(!isStructurallyValidExcludingRisk(command))return AuthorizationCheckResult::INVALID_REQUEST;
     if(!isValidCommandRisk(command.context.risk))return AuthorizationCheckResult::POLICY_ERROR;
 
     AuthorizationSubject subject;
