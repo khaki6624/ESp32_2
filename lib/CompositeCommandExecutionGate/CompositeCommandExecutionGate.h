@@ -8,7 +8,9 @@
 #include <SafetyPolicy.h>
 #include <SystemModeProvider.h>
 
-class CompositeCommandExecutionGate final : public CommandExecutionCommitHook
+class CompositeCommandExecutionGate final
+    : public CommandExecutionGate,
+      public CommandExecutionCommitHook
 {
 public:
     CompositeCommandExecutionGate(
