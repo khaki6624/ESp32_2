@@ -96,6 +96,20 @@ namespace
             return result;
         }
     };
+
+    class FakeCommitHook final : public CommandExecutionCommitHook
+    {
+    public:
+        CommandExecutionGateResult result = CommandExecutionGateResult::ALLOWED;
+        uint16_t commitCount = 0U;
+        uint32_t lastNowMs = 0U;
+        CommandExecutionGateResult commit(const Command&, uint32_t nowMs) override
+        {
+            ++commitCount;
+            lastNowMs = nowMs;
+            return result;
+        }
+    };
 }
 
 void setUp() {}
@@ -216,10 +230,11 @@ void test_executor_success_state_machine()
     SceneExecutionQueue queue;
     CommandValidator validator;
     FakeGate gate;
+    FakeCommitHook commitHook;
     FakeHandler handler;
     CommandDispatcher dispatcher;
     dispatcher.registerHandler(handler);
-    CommandExecutor executor(queue, validator, gate, dispatcher);
+    CommandExecutor executor(queue, validator, gate, commitHook, dispatcher);
     TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(CommandExecutorState::IDLE),
         static_cast<uint8_t>(executor.getState()));
     executor.update(1U);
@@ -253,10 +268,11 @@ void test_executor_gate_and_dispatch_failures()
     SceneExecutionQueue queue;
     CommandValidator validator;
     FakeGate gate;
+    FakeCommitHook commitHook;
     FakeHandler handler;
     CommandDispatcher dispatcher;
     dispatcher.registerHandler(handler);
-    CommandExecutor executor(queue, validator, gate, dispatcher);
+    CommandExecutor executor(queue, validator, gate, commitHook, dispatcher);
     queue.enqueue(makeCommand());
     gate.result = CommandExecutionGateResult::UNAUTHORIZED;
     executor.update(1U);
@@ -292,11 +308,12 @@ void test_executor_rejects_bad_result_without_reexecution()
     SceneExecutionQueue queue;
     CommandValidator validator;
     FakeGate gate;
+    FakeCommitHook commitHook;
     FakeHandler handler;
     handler.resultMode = FakeResultMode::WRONG_COMMAND_ID;
     CommandDispatcher dispatcher;
     dispatcher.registerHandler(handler);
-    CommandExecutor executor(queue, validator, gate, dispatcher);
+    CommandExecutor executor(queue, validator, gate, commitHook, dispatcher);
     const Command command = makeCommand();
     queue.enqueue(command);
     for (uint32_t now = 1U; now <= 5U; ++now)

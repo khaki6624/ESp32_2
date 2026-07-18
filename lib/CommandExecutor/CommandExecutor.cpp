@@ -67,11 +67,13 @@ CommandExecutor::CommandExecutor(
     SceneExecutionQueue& commandQueue,
     const CommandValidator& validator,
     const CommandExecutionGate& executionGate,
+    CommandExecutionCommitHook& commitHook,
     const CommandDispatcher& dispatcher
 ) :
     commandQueue_(commandQueue),
     validator_(validator),
     executionGate_(executionGate),
+    commitHook_(commitHook),
     dispatcher_(dispatcher),
     state_(CommandExecutorState::IDLE),
     lastResult_(CommandExecutorResult::COMMAND_QUEUE_EMPTY),
@@ -196,6 +198,21 @@ void CommandExecutor::update(uint32_t nowMs)
                 finish(
                     CommandExecutorState::FAILED,
                     CommandExecutorResult::COMMAND_RESULT_INVALID
+                );
+                return;
+            }
+            const CommandExecutionGateResult commitResult = commitHook_.commit(
+                currentCommand_, nowMs
+            );
+            if (commitResult != CommandExecutionGateResult::ALLOWED)
+            {
+                const bool stored = storeFailureResult(
+                    nowMs, ExecutionStatus::FAILED, mapGateError(commitResult)
+                );
+                finish(
+                    CommandExecutorState::FAILED,
+                    stored ? CommandExecutorResult::GATE_REJECTED
+                           : CommandExecutorResult::COMMAND_RESULT_INVALID
                 );
                 return;
             }

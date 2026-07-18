@@ -2,6 +2,7 @@
 #define COMMAND_EXECUTOR_H
 
 #include <CommandDispatcher.h>
+#include <CommandExecutionCommitHook.h>
 #include <CommandExecutionGate.h>
 #include <CommandValidator.h>
 #include <SceneExecutionQueue.h>
@@ -13,6 +14,7 @@ public:
         SceneExecutionQueue& commandQueue,
         const CommandValidator& validator,
         const CommandExecutionGate& executionGate,
+        CommandExecutionCommitHook& commitHook,
         const CommandDispatcher& dispatcher
     );
 
@@ -28,6 +30,7 @@ private:
     SceneExecutionQueue& commandQueue_;
     const CommandValidator& validator_;
     const CommandExecutionGate& executionGate_;
+    CommandExecutionCommitHook& commitHook_;
     const CommandDispatcher& dispatcher_;
     CommandExecutorState state_;
     CommandExecutorResult lastResult_;
