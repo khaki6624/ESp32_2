@@ -24,6 +24,16 @@ inline bool set(char* destination, size_t capacity, const char* value)
 }
 }
 
+struct EventPayload
+{
+    uint32_t value1;
+    uint32_t value2;
+    int32_t signedValue;
+    bool flag;
+
+    EventPayload() : value1(0), value2(0), signedValue(0), flag(false) {}
+};
+
 struct Event
 {
     EventId id;
@@ -38,6 +48,7 @@ struct Event
     uint32_t completedMs;
     EventPersistencePolicy persistencePolicy;
     EventResultCode resultCode;
+    EventPayload payload;
     char sourceName[EVENT_SOURCE_NAME_MAX_LENGTH];
     char message[EVENT_MESSAGE_MAX_LENGTH];
 
@@ -45,7 +56,7 @@ struct Event
         type(EventType::NONE), status(EventStatus::PENDING), severity(EventSeverity::INFO),
         sourceType(EventSourceType::NONE), sourceId(0), timestampMs(0),
         processingStartedMs(0), completedMs(0),
-        persistencePolicy(EventPersistencePolicy::NONE), resultCode(EventResultCode::NONE),
+        persistencePolicy(EventPersistencePolicy::NONE), resultCode(EventResultCode::NONE), payload{},
         sourceName{}, message{} {}
 
     bool isValid() const
@@ -53,6 +64,7 @@ struct Event
         return id != INVALID_EVENT_ID && type != EventType::NONE && isValidEventType(type) &&
                isValidEventStatus(status) && isValidEventSeverity(severity) &&
                sourceType != EventSourceType::NONE && isValidEventSourceType(sourceType) &&
+               (sourceType == EventSourceType::SYSTEM || sourceId != 0U) &&
                isValidEventPersistencePolicy(persistencePolicy) &&
                isValidEventResultCode(resultCode) &&
                EventText::isTerminated(sourceName, sizeof(sourceName)) &&

@@ -10,6 +10,8 @@ using EventCorrelationId = uint32_t;
 constexpr EventId INVALID_EVENT_ID = 0;
 constexpr EventCorrelationId INVALID_EVENT_CORRELATION_ID = 0;
 constexpr size_t EVENT_BUS_CAPACITY = 32;
+constexpr size_t EVENT_QUEUE_CAPACITY = 16;
+constexpr size_t EVENT_HANDLER_CAPACITY = 8;
 constexpr size_t EVENT_HISTORY_BUFFER_CAPACITY = 16;
 constexpr size_t EVENT_SOURCE_NAME_MAX_LENGTH = 24;
 constexpr size_t EVENT_MESSAGE_MAX_LENGTH = 64;
@@ -38,7 +40,8 @@ enum class EventType : uint16_t
     CONFIRMATION_REQUIRED = 601,
     STORAGE_ERROR = 700,
     COMMUNICATION_ERROR = 701,
-    CUSTOM = 1000
+    CUSTOM = 1000,
+    COUNT = 1001
 };
 
 inline bool isValidEventType(EventType type)
@@ -69,15 +72,39 @@ inline bool isTerminalEventStatus(EventStatus value)
            value == EventStatus::CANCELLED;
 }
 
-enum class EventSeverity : uint8_t { INFO = 0, NOTICE, WARNING, ERROR, CRITICAL };
-inline bool isValidEventSeverity(EventSeverity value) { return static_cast<uint8_t>(value) <= 4U; }
+enum class EventSeverity : uint8_t { INFO = 0, NOTICE, WARNING, ERROR, CRITICAL, COUNT };
+inline bool isValidEventSeverity(EventSeverity value)
+{ return static_cast<uint8_t>(value) < static_cast<uint8_t>(EventSeverity::COUNT); }
 
 enum class EventSourceType : uint8_t
 {
     NONE = 0, SYSTEM, COMMAND, DEVICE, ENDPOINT, NODE, TRANSPORT,
-    STORAGE, RULE, SCENE, SCHEDULER, USER
+    STORAGE, RULE, SCENE, SCHEDULER, USER, COUNT
 };
-inline bool isValidEventSourceType(EventSourceType value) { return static_cast<uint8_t>(value) <= 11U; }
+inline bool isValidEventSourceType(EventSourceType value)
+{ return static_cast<uint8_t>(value) < static_cast<uint8_t>(EventSourceType::COUNT); }
+
+enum class EventPublishResult : uint8_t
+{
+    SUCCESS = 0, INVALID_EVENT, QUEUE_FULL, DUPLICATE_EVENT
+};
+
+enum class EventQueueResult : uint8_t { SUCCESS = 0, QUEUE_EMPTY };
+
+enum class EventHandleResult : uint8_t { HANDLED = 0, IGNORED, FAILED, COUNT };
+inline bool isValidEventHandleResult(EventHandleResult value)
+{ return static_cast<uint8_t>(value) < static_cast<uint8_t>(EventHandleResult::COUNT); }
+
+enum class EventHandlerRegistrationResult : uint8_t
+{
+    SUCCESS = 0, DUPLICATE_HANDLER, REGISTRY_FULL, HANDLER_NOT_FOUND
+};
+
+enum class EventDispatchResult : uint8_t
+{
+    SUCCESS = 0, QUEUE_EMPTY, EVENT_IGNORED, NO_HANDLERS,
+    HANDLER_FAILED, INVALID_EVENT, REENTRANT_CALL, INTERNAL_ERROR
+};
 
 enum class EventPersistencePolicy : uint8_t { NONE = 0, ON_FAILURE, ALWAYS };
 inline bool isValidEventPersistencePolicy(EventPersistencePolicy value)
