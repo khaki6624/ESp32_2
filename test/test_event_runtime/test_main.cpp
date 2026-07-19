@@ -7,6 +7,8 @@ class EventQueueTestAccess
 {
 public:
     static void invalidateHead(EventQueue& queue) { queue.events_[queue.head_].id = INVALID_EVENT_ID; }
+    static void makeConsumeFail(EventQueue& queue)
+    { queue.count_ = 0U; queue.head_ = queue.tail_; }
 };
 
 namespace
@@ -61,10 +63,28 @@ public:
     explicit RecursiveEventHandler(EventDispatcher& dispatcher) : dispatcher_(dispatcher) {}
     EventDispatchResult recursiveResult = EventDispatchResult::SUCCESS;
     size_t calls = 0U;
+    EventHandleResult result = EventHandleResult::HANDLED;
+    size_t* sequence = nullptr;
+    size_t calledAt = 0U;
     EventHandleResult handle(const Event&) override
-    { ++calls; recursiveResult = dispatcher_.update(); return EventHandleResult::HANDLED; }
+    {
+        ++calls;
+        if (sequence != nullptr) calledAt = ++(*sequence);
+        recursiveResult = dispatcher_.update();
+        return result;
+    }
 private:
     EventDispatcher& dispatcher_;
+};
+
+class ConsumeFailingEventHandler final : public EventHandler
+{
+public:
+    explicit ConsumeFailingEventHandler(EventQueue& queue) : queue_(queue) {}
+    EventHandleResult handle(const Event&) override
+    { EventQueueTestAccess::makeConsumeFail(queue_); return EventHandleResult::HANDLED; }
+private:
+    EventQueue& queue_;
 };
 
 void assertPublish(EventPublishResult expected, EventPublishResult actual)
@@ -88,6 +108,22 @@ void test_event_model_and_copy()
     event = makeEvent(); event.sourceType = static_cast<EventSourceType>(255U); TEST_ASSERT_FALSE(event.isValid());
     event = makeEvent(); event.sourceId = 0U; TEST_ASSERT_FALSE(event.isValid());
     event = makeEvent(); event.sourceType = EventSourceType::SYSTEM; event.sourceId = 0U; TEST_ASSERT_TRUE(event.isValid());
+}
+
+void test_event_severity_count_and_frozen_values()
+{
+    TEST_ASSERT_TRUE(isValidEventSeverity(EventSeverity::INFO));
+    TEST_ASSERT_TRUE(isValidEventSeverity(EventSeverity::CRITICAL));
+    TEST_ASSERT_FALSE(isValidEventSeverity(EventSeverity::COUNT));
+    TEST_ASSERT_FALSE(isValidEventSeverity(static_cast<EventSeverity>(
+        static_cast<uint8_t>(EventSeverity::COUNT) + 1U)));
+    TEST_ASSERT_EQUAL_UINT8(0U, static_cast<uint8_t>(EventSeverity::INFO));
+    TEST_ASSERT_EQUAL_UINT8(1U, static_cast<uint8_t>(EventSeverity::NOTICE));
+    TEST_ASSERT_EQUAL_UINT8(2U, static_cast<uint8_t>(EventSeverity::WARNING));
+    TEST_ASSERT_EQUAL_UINT8(3U, static_cast<uint8_t>(EventSeverity::ERROR));
+    TEST_ASSERT_EQUAL_UINT8(4U, static_cast<uint8_t>(EventSeverity::CRITICAL));
+    Event event = makeEvent(); event.severity = EventSeverity::COUNT;
+    TEST_ASSERT_FALSE(event.isValid());
 }
 
 void test_queue_validation_duplicate_full_and_copy()
@@ -178,11 +214,45 @@ void test_reentrant_publish_is_deferred_and_full_is_atomic()
 
 void test_recursive_dispatch_is_rejected_without_mutation()
 {
-    EventQueue queue; EventDispatcher dispatcher(queue); RecursiveEventHandler handler(dispatcher);
-    dispatcher.addHandler(handler); queue.publish(makeEvent());
+    EventQueue queue; EventDispatcher dispatcher(queue); RecursiveEventHandler handler(dispatcher); FakeEventHandler later;
+    size_t sequence = 0U; handler.sequence = &sequence; later.sequence = &sequence;
+    dispatcher.addHandler(handler); dispatcher.addHandler(later); queue.publish(makeEvent()); queue.publish(makeEvent(2U));
     assertDispatch(EventDispatchResult::SUCCESS, dispatcher.update());
     assertDispatch(EventDispatchResult::REENTRANT_CALL, handler.recursiveResult);
-    TEST_ASSERT_EQUAL_UINT32(1U, handler.calls); TEST_ASSERT_TRUE(queue.empty());
+    TEST_ASSERT_EQUAL_UINT32(1U, handler.calls); TEST_ASSERT_EQUAL_UINT32(1U, handler.calledAt);
+    TEST_ASSERT_EQUAL_UINT32(1U, later.calls); TEST_ASSERT_EQUAL_UINT32(2U, later.calledAt);
+    TEST_ASSERT_EQUAL_UINT32(1U, queue.size()); TEST_ASSERT_EQUAL_UINT32(2U, queue.peek()->id);
+    assertDispatch(EventDispatchResult::SUCCESS, dispatcher.update());
+    TEST_ASSERT_EQUAL_UINT32(2U, handler.calls); TEST_ASSERT_TRUE(queue.empty());
+}
+
+void test_dispatch_guard_resets_on_all_terminal_results()
+{
+    EventQueue successQueue; EventDispatcher successDispatcher(successQueue); RecursiveEventHandler success(successDispatcher);
+    successDispatcher.addHandler(success); successQueue.publish(makeEvent());
+    assertDispatch(EventDispatchResult::SUCCESS, successDispatcher.update());
+    successQueue.publish(makeEvent(2U)); assertDispatch(EventDispatchResult::SUCCESS, successDispatcher.update());
+
+    EventQueue ignoredQueue; EventDispatcher ignoredDispatcher(ignoredQueue); RecursiveEventHandler ignored(ignoredDispatcher);
+    ignored.result = EventHandleResult::IGNORED; ignoredDispatcher.addHandler(ignored); ignoredQueue.publish(makeEvent());
+    assertDispatch(EventDispatchResult::EVENT_IGNORED, ignoredDispatcher.update());
+    ignoredQueue.publish(makeEvent(2U)); assertDispatch(EventDispatchResult::EVENT_IGNORED, ignoredDispatcher.update());
+
+    EventQueue failedQueue; EventDispatcher failedDispatcher(failedQueue); RecursiveEventHandler failed(failedDispatcher);
+    failed.result = EventHandleResult::FAILED; failedDispatcher.addHandler(failed); failedQueue.publish(makeEvent());
+    assertDispatch(EventDispatchResult::HANDLER_FAILED, failedDispatcher.update());
+    failedQueue.publish(makeEvent(2U)); assertDispatch(EventDispatchResult::HANDLER_FAILED, failedDispatcher.update());
+
+    EventQueue emptyRegistryQueue; EventDispatcher emptyRegistryDispatcher(emptyRegistryQueue);
+    emptyRegistryQueue.publish(makeEvent()); assertDispatch(EventDispatchResult::NO_HANDLERS, emptyRegistryDispatcher.update());
+    emptyRegistryQueue.publish(makeEvent(2U)); assertDispatch(EventDispatchResult::NO_HANDLERS, emptyRegistryDispatcher.update());
+
+    EventQueue internalQueue; EventDispatcher internalDispatcher(internalQueue); ConsumeFailingEventHandler corruptor(internalQueue);
+    internalDispatcher.addHandler(corruptor); internalQueue.publish(makeEvent());
+    assertDispatch(EventDispatchResult::INTERNAL_ERROR, internalDispatcher.update());
+    internalDispatcher.removeHandler(corruptor); RecursiveEventHandler recovered(internalDispatcher);
+    internalDispatcher.addHandler(recovered); internalQueue.publish(makeEvent(2U));
+    assertDispatch(EventDispatchResult::SUCCESS, internalDispatcher.update());
 }
 
 static_assert(std::is_base_of<EventSink, EventQueue>::value, "Producer باید فقط EventSink را ببیند");
@@ -192,11 +262,13 @@ static_assert(std::is_trivially_copyable<EventPayload>::value, "Payload باید
 void setup()
 {
     UNITY_BEGIN();
-    RUN_TEST(test_event_model_and_copy); RUN_TEST(test_queue_validation_duplicate_full_and_copy);
+    RUN_TEST(test_event_model_and_copy); RUN_TEST(test_event_severity_count_and_frozen_values);
+    RUN_TEST(test_queue_validation_duplicate_full_and_copy);
     RUN_TEST(test_queue_fifo_wraparound_clear); RUN_TEST(test_handler_registration_and_order);
     RUN_TEST(test_dispatch_results_consumption_and_next_event); RUN_TEST(test_failure_invalid_result_and_no_retry);
     RUN_TEST(test_corrupt_event_is_dropped_and_queue_progresses); RUN_TEST(test_reentrant_publish_is_deferred_and_full_is_atomic);
     RUN_TEST(test_recursive_dispatch_is_rejected_without_mutation);
+    RUN_TEST(test_dispatch_guard_resets_on_all_terminal_results);
     UNITY_END();
 }
 void loop() {}

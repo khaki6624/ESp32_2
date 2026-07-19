@@ -41,11 +41,17 @@ EventDispatchResult EventDispatcher::update()
         if (!isValidEventHandleResult(result) || result == EventHandleResult::FAILED) failed = true;
         else if (result == EventHandleResult::HANDLED) handled = true;
     }
+    EventDispatchResult result;
+    if (queue_.consume() != EventQueueResult::SUCCESS)
+        result = EventDispatchResult::INTERNAL_ERROR;
+    else if (failed)
+        result = EventDispatchResult::HANDLER_FAILED;
+    else if (handlerCount_ == 0U)
+        result = EventDispatchResult::NO_HANDLERS;
+    else
+        result = handled ? EventDispatchResult::SUCCESS : EventDispatchResult::EVENT_IGNORED;
     dispatching_ = false;
-    if (queue_.consume() != EventQueueResult::SUCCESS) return EventDispatchResult::INTERNAL_ERROR;
-    if (failed) return EventDispatchResult::HANDLER_FAILED;
-    if (handlerCount_ == 0U) return EventDispatchResult::NO_HANDLERS;
-    return handled ? EventDispatchResult::SUCCESS : EventDispatchResult::EVENT_IGNORED;
+    return result;
 }
 size_t EventDispatcher::handlerCount() const { return handlerCount_; }
 size_t EventDispatcher::handlerCapacity() const { return EVENT_HANDLER_CAPACITY; }

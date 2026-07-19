@@ -103,7 +103,7 @@ enum class EventHandlerRegistrationResult : uint8_t
 enum class EventDispatchResult : uint8_t
 {
     SUCCESS = 0, QUEUE_EMPTY, EVENT_IGNORED, NO_HANDLERS,
-    HANDLER_FAILED, INVALID_EVENT, REENTRANT_CALL, INTERNAL_ERROR
+    HANDLER_FAILED, INVALID_EVENT, INTERNAL_ERROR, REENTRANT_CALL
 };
 
 enum class EventPersistencePolicy : uint8_t { NONE = 0, ON_FAILURE, ALWAYS };
