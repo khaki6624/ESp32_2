@@ -16,8 +16,8 @@ void StorageRuntime::setTransaction(const StorageRequest& request,
 
 StorageResult StorageRuntime::begin()
 {
+    if (busy_) return StorageResult::BUSY;
     initialized_ = false;
-    busy_ = false;
     activeRequest_ = StorageRequest{};
     transaction_ = StorageTransaction{};
     const StorageBackendResult result = backend_.begin();
@@ -45,11 +45,22 @@ StorageResult StorageRuntime::submit(const StorageRequest& request)
     if (!request.isValid()) return StorageResult::INVALID_ARGUMENT;
     if (!backend_.isReady()) return StorageResult::BACKEND_NOT_READY;
 
-    const StorageBackendResult backendResult = backend_.start(request);
+    size_t transferredLength = 0U;
+    const StorageBackendResult backendResult = backend_.start(request, transferredLength);
+    const bool operationAccepted = backendResult == StorageBackendResult::SUCCESS ||
+        backendResult == StorageBackendResult::ACCEPTED ||
+        backendResult == StorageBackendResult::IN_PROGRESS;
+    if (!isTransferredLengthValid(request, transferredLength) ||
+        (!operationAccepted && transferredLength != 0U))
+    {
+        setTransaction(request, StorageOperationState::FAILED,
+            StorageResult::INTERNAL_ERROR, transferredLength);
+        return StorageResult::INTERNAL_ERROR;
+    }
     if (!isValidStorageBackendResult(backendResult))
     {
         setTransaction(request, StorageOperationState::FAILED,
-            StorageResult::INTERNAL_ERROR, 0U);
+            StorageResult::INTERNAL_ERROR, transferredLength);
         return StorageResult::INTERNAL_ERROR;
     }
 
@@ -57,7 +68,7 @@ StorageResult StorageRuntime::submit(const StorageRequest& request)
     {
         activeRequest_ = request;
         setTransaction(request, StorageOperationState::PENDING,
-            StorageResult::ACCEPTED, 0U);
+            StorageResult::ACCEPTED, transferredLength);
         busy_ = true;
         return StorageResult::ACCEPTED;
     }
@@ -65,7 +76,7 @@ StorageResult StorageRuntime::submit(const StorageRequest& request)
     {
         activeRequest_ = request;
         setTransaction(request, StorageOperationState::RUNNING,
-            StorageResult::IN_PROGRESS, 0U);
+            StorageResult::IN_PROGRESS, transferredLength);
         busy_ = true;
         return StorageResult::ACCEPTED;
     }
@@ -73,7 +84,7 @@ StorageResult StorageRuntime::submit(const StorageRequest& request)
     {
         activeRequest_ = request;
         setTransaction(request, StorageOperationState::SUCCEEDED,
-            StorageResult::SUCCESS, 0U);
+            StorageResult::SUCCESS, transferredLength);
         return StorageResult::SUCCESS;
     }
 
@@ -92,17 +103,19 @@ StorageResult StorageRuntime::submit(const StorageRequest& request)
         result = StorageResult::CANCELLED;
         state = StorageOperationState::CANCELLED;
     }
-    setTransaction(request, state, result, 0U);
+    setTransaction(request, state, result, transferredLength);
     return result;
 }
 
-size_t StorageRuntime::transferLimit() const
+bool StorageRuntime::isTransferredLengthValid(const StorageRequest& request,
+    size_t transferredLength) const
 {
-    if (activeRequest_.type() == StorageOperationType::READ)
-        return activeRequest_.output().capacity();
-    if (activeRequest_.type() == StorageOperationType::WRITE)
-        return activeRequest_.input().length();
-    return 0U;
+    if (!request.isValid()) return false;
+    if (request.type() == StorageOperationType::READ)
+        return transferredLength <= request.output().capacity();
+    if (request.type() == StorageOperationType::WRITE)
+        return transferredLength <= request.input().length();
+    return transferredLength == 0U;
 }
 
 StorageResult StorageRuntime::finishFailure(StorageResult result)
@@ -121,7 +134,7 @@ StorageResult StorageRuntime::update()
     size_t transferredLength = transaction_.transferredLength_;
     const StorageBackendResult backendResult = backend_.update(transferredLength);
     if (transferredLength < transaction_.transferredLength_ ||
-        transferredLength > transferLimit())
+        !isTransferredLengthValid(activeRequest_, transferredLength))
         return finishFailure(StorageResult::INTERNAL_ERROR);
     transaction_.transferredLength_ = transferredLength;
     if (!isValidStorageBackendResult(backendResult))

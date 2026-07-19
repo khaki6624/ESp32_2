@@ -9,7 +9,8 @@ public:
     virtual ~StorageBackend() = default;
     virtual StorageBackendResult begin() = 0;
     virtual bool isReady() const = 0;
-    virtual StorageBackendResult start(const StorageRequest& request) = 0;
+    virtual StorageBackendResult start(const StorageRequest& request,
+        size_t& transferredLength) = 0;
     virtual StorageBackendResult update(size_t& transferredLength) = 0;
     virtual StorageBackendResult cancel() = 0;
 };

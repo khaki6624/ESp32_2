@@ -25,6 +25,7 @@ class FakeStorageBackend final : public StorageBackend
 public:
     StorageBackendResult beginResult = StorageBackendResult::SUCCESS;
     StorageBackendResult startResult = StorageBackendResult::ACCEPTED;
+    size_t startTransferredLength = 0U;
     StorageBackendResult cancelResult = StorageBackendResult::CANCELLED;
     bool ready = true;
     size_t beginCalls = 0U;
@@ -44,8 +45,14 @@ public:
         ++const_cast<FakeStorageBackend*>(this)->readyCalls;
         return ready;
     }
-    StorageBackendResult start(const StorageRequest& request) override
-    { ++startCalls; lastRequest = request; return startResult; }
+    StorageBackendResult start(const StorageRequest& request,
+        size_t& transferredLength) override
+    {
+        ++startCalls;
+        lastRequest = request;
+        transferredLength = startTransferredLength;
+        return startResult;
+    }
     StorageBackendResult update(size_t& transferredLength) override
     {
         ++updateCalls;
@@ -151,7 +158,17 @@ void test_begin_maps_results_calls_once_and_clears_previous_state()
     assertResult(StorageResult::ACCEPTED, runtime.submit(StorageRequest::write(
         9U, makeKey(), StorageReadBuffer(data, sizeof(data)), true)));
     TEST_ASSERT_TRUE(runtime.isBusy());
+    const size_t beginCallsBeforeBusyBegin = backend.beginCalls;
+    const StorageOperationId activeId = runtime.transaction().operationId();
+    assertResult(StorageResult::BUSY, runtime.begin());
+    TEST_ASSERT_EQUAL_UINT32(beginCallsBeforeBusyBegin, backend.beginCalls);
+    TEST_ASSERT_TRUE(runtime.isInitialized()); TEST_ASSERT_TRUE(runtime.isBusy());
+    TEST_ASSERT_EQUAL_UINT32(activeId, runtime.transaction().operationId());
+    assertState(StorageOperationState::PENDING, runtime.transaction().state());
+    backend.cancelResult = StorageBackendResult::SUCCESS;
+    assertResult(StorageResult::CANCELLED, runtime.cancel());
     assertResult(StorageResult::SUCCESS, runtime.begin());
+    TEST_ASSERT_EQUAL_UINT32(beginCallsBeforeBusyBegin + 1U, backend.beginCalls);
     TEST_ASSERT_FALSE(runtime.isBusy()); TEST_ASSERT_FALSE(runtime.transaction().isValid());
 }
 
@@ -221,6 +238,117 @@ void test_update_integration_sequence_is_non_blocking_and_cumulative()
     TEST_ASSERT_EQUAL_UINT32(3U, runtime.transaction().transferredLength());
     assertState(StorageOperationState::SUCCEEDED, runtime.transaction().state());
     TEST_ASSERT_EQUAL_MEMORY(data, backend.lastRequest.input().data(), sizeof(data));
+}
+
+void test_start_transferred_length_contract_for_all_results_and_operations()
+{
+    uint8_t readData[32] = {};
+    uint8_t writeData[8] = {};
+    const StorageKey key = makeKey();
+
+    FakeStorageBackend readSuccessBackend;
+    StorageRuntime readSuccess(readSuccessBackend); readSuccess.begin();
+    readSuccessBackend.startResult = StorageBackendResult::SUCCESS;
+    readSuccessBackend.startTransferredLength = 12U;
+    assertResult(StorageResult::SUCCESS, readSuccess.submit(StorageRequest::read(
+        70U, key, StorageWriteBuffer(readData, sizeof(readData)))));
+    TEST_ASSERT_FALSE(readSuccess.isBusy());
+    assertState(StorageOperationState::SUCCEEDED, readSuccess.transaction().state());
+    TEST_ASSERT_EQUAL_UINT32(12U, readSuccess.transaction().transferredLength());
+
+    FakeStorageBackend writeSuccessBackend;
+    StorageRuntime writeSuccess(writeSuccessBackend); writeSuccess.begin();
+    writeSuccessBackend.startResult = StorageBackendResult::SUCCESS;
+    writeSuccessBackend.startTransferredLength = sizeof(writeData);
+    assertResult(StorageResult::SUCCESS, writeSuccess.submit(StorageRequest::write(
+        71U, key, StorageReadBuffer(writeData, sizeof(writeData)), true)));
+    TEST_ASSERT_EQUAL_UINT32(sizeof(writeData), writeSuccess.transaction().transferredLength());
+
+    FakeStorageBackend acceptedBackend;
+    StorageRuntime accepted(acceptedBackend); accepted.begin();
+    acceptedBackend.startTransferredLength = 1U;
+    assertResult(StorageResult::ACCEPTED, accepted.submit(StorageRequest::write(
+        72U, key, StorageReadBuffer(writeData, sizeof(writeData)), false)));
+    TEST_ASSERT_TRUE(accepted.isBusy());
+    assertState(StorageOperationState::PENDING, accepted.transaction().state());
+    TEST_ASSERT_EQUAL_UINT32(1U, accepted.transaction().transferredLength());
+
+    FakeStorageBackend progressBackend;
+    StorageRuntime progress(progressBackend); progress.begin();
+    progressBackend.startResult = StorageBackendResult::IN_PROGRESS;
+    progressBackend.startTransferredLength = 2U;
+    progressBackend.addUpdate(StorageBackendResult::IN_PROGRESS, 1U);
+    assertResult(StorageResult::ACCEPTED, progress.submit(StorageRequest::write(
+        73U, key, StorageReadBuffer(writeData, sizeof(writeData)), false)));
+    TEST_ASSERT_TRUE(progress.isBusy());
+    assertState(StorageOperationState::RUNNING, progress.transaction().state());
+    TEST_ASSERT_EQUAL_UINT32(2U, progress.transaction().transferredLength());
+    assertResult(StorageResult::INTERNAL_ERROR, progress.update());
+    TEST_ASSERT_FALSE(progress.isBusy());
+    assertState(StorageOperationState::FAILED, progress.transaction().state());
+
+    FakeStorageBackend oversizedReadBackend;
+    StorageRuntime oversizedRead(oversizedReadBackend); oversizedRead.begin();
+    oversizedReadBackend.startResult = StorageBackendResult::SUCCESS;
+    oversizedReadBackend.startTransferredLength = sizeof(readData) + 1U;
+    assertResult(StorageResult::INTERNAL_ERROR, oversizedRead.submit(StorageRequest::read(
+        74U, key, StorageWriteBuffer(readData, sizeof(readData)))));
+    TEST_ASSERT_FALSE(oversizedRead.isBusy());
+    assertState(StorageOperationState::FAILED, oversizedRead.transaction().state());
+
+    FakeStorageBackend oversizedWriteBackend;
+    StorageRuntime oversizedWrite(oversizedWriteBackend); oversizedWrite.begin();
+    oversizedWriteBackend.startResult = StorageBackendResult::SUCCESS;
+    oversizedWriteBackend.startTransferredLength = sizeof(writeData) + 1U;
+    assertResult(StorageResult::INTERNAL_ERROR, oversizedWrite.submit(StorageRequest::write(
+        75U, key, StorageReadBuffer(writeData, sizeof(writeData)), false)));
+
+    FakeStorageBackend removeBackend;
+    StorageRuntime removeRuntime(removeBackend); removeRuntime.begin();
+    removeBackend.startResult = StorageBackendResult::SUCCESS;
+    removeBackend.startTransferredLength = 1U;
+    assertResult(StorageResult::INTERNAL_ERROR,
+        removeRuntime.submit(StorageRequest::remove(76U, key)));
+
+    FakeStorageBackend existsBackend;
+    StorageRuntime existsRuntime(existsBackend); existsRuntime.begin();
+    existsBackend.startResult = StorageBackendResult::SUCCESS;
+    existsBackend.startTransferredLength = 1U;
+    assertResult(StorageResult::INTERNAL_ERROR,
+        existsRuntime.submit(StorageRequest::exists(77U, key)));
+
+    FakeStorageBackend retryBackend;
+    StorageRuntime retryRuntime(retryBackend); retryRuntime.begin();
+    retryBackend.startResult = StorageBackendResult::RETRY_LATER;
+    assertResult(StorageResult::BACKEND_RETRY_LATER, retryRuntime.submit(
+        StorageRequest::write(78U, key, StorageReadBuffer(writeData, sizeof(writeData)), false)));
+    TEST_ASSERT_FALSE(retryRuntime.isBusy());
+    assertState(StorageOperationState::FAILED, retryRuntime.transaction().state());
+    TEST_ASSERT_EQUAL_UINT32(78U, retryRuntime.transaction().operationId());
+
+    FakeStorageBackend invalidRetryBackend;
+    StorageRuntime invalidRetry(invalidRetryBackend); invalidRetry.begin();
+    invalidRetryBackend.startResult = StorageBackendResult::RETRY_LATER;
+    invalidRetryBackend.startTransferredLength = 1U;
+    assertResult(StorageResult::INTERNAL_ERROR, invalidRetry.submit(
+        StorageRequest::write(79U, key, StorageReadBuffer(writeData, sizeof(writeData)), false)));
+    TEST_ASSERT_FALSE(invalidRetry.isBusy());
+
+    FakeStorageBackend failedBackend;
+    StorageRuntime failed(failedBackend); failed.begin();
+    failedBackend.startResult = StorageBackendResult::FAILED;
+    failedBackend.startTransferredLength = 1U;
+    assertResult(StorageResult::INTERNAL_ERROR, failed.submit(
+        StorageRequest::write(80U, key, StorageReadBuffer(writeData, sizeof(writeData)), false)));
+    TEST_ASSERT_EQUAL_UINT32(80U, failed.transaction().operationId());
+
+    FakeStorageBackend notFoundBackend;
+    StorageRuntime notFound(notFoundBackend); notFound.begin();
+    notFoundBackend.startResult = StorageBackendResult::NOT_FOUND;
+    notFoundBackend.startTransferredLength = 1U;
+    assertResult(StorageResult::INTERNAL_ERROR, notFound.submit(
+        StorageRequest::read(81U, key, StorageWriteBuffer(readData, sizeof(readData)))));
+    TEST_ASSERT_EQUAL_UINT32(81U, notFound.transaction().operationId());
 }
 
 void test_update_maps_terminal_results_and_rejects_invalid_progress()
@@ -334,6 +462,7 @@ void setup()
     RUN_TEST(test_begin_maps_results_calls_once_and_clears_previous_state);
     RUN_TEST(test_submit_mapping_atomic_failures_and_busy_policy);
     RUN_TEST(test_update_integration_sequence_is_non_blocking_and_cumulative);
+    RUN_TEST(test_start_transferred_length_contract_for_all_results_and_operations);
     RUN_TEST(test_update_maps_terminal_results_and_rejects_invalid_progress);
     RUN_TEST(test_cancel_and_clear_completed_policies_preserve_metadata);
     RUN_TEST(test_completed_transaction_can_be_replaced_and_runtimes_are_independent);

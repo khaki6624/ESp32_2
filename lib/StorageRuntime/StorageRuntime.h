@@ -27,7 +27,8 @@ private:
     void setTransaction(const StorageRequest& request, StorageOperationState state,
         StorageResult result, size_t transferredLength);
     StorageResult finishFailure(StorageResult result);
-    size_t transferLimit() const;
+    bool isTransferredLengthValid(const StorageRequest& request,
+        size_t transferredLength) const;
 };
 
 #endif
