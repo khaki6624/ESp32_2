@@ -4,9 +4,12 @@ namespace
 constexpr size_t INVALID_SLOT=COMMUNICATION_MAX_BACKENDS;
 uint8_t updatePriority(CommunicationResult r)
 {
- if(r==CommunicationResult::INTERNAL_ERROR)return 7U;
- if(r==CommunicationResult::BACKEND_FAILED)return 6U;
- if(r==CommunicationResult::SINK_REJECTED)return 5U;
+ // Priority: INTERNAL_ERROR > BACKEND_FAILED > SINK_REJECTED > CANCELLED >
+ // SUCCESS > IN_PROGRESS > BACKEND_RETRY_LATER > NO_MESSAGE.
+ if(r==CommunicationResult::INTERNAL_ERROR)return 8U;
+ if(r==CommunicationResult::BACKEND_FAILED)return 7U;
+ if(r==CommunicationResult::SINK_REJECTED)return 6U;
+ if(r==CommunicationResult::CANCELLED)return 5U;
  if(r==CommunicationResult::SUCCESS)return 4U;
  if(r==CommunicationResult::IN_PROGRESS)return 3U;
  if(r==CommunicationResult::BACKEND_RETRY_LATER)return 2U;
@@ -90,7 +93,7 @@ CommunicationResult CommunicationRuntime::updateTx(CommunicationRuntimeSlot& s)
  if(br==CommunicationBackendResult::RETRY_LATER){s.transaction.state_=CommunicationTransactionState::RUNNING;s.transaction.result_=CommunicationResult::BACKEND_RETRY_LATER;return CommunicationResult::BACKEND_RETRY_LATER;}
  if(br==CommunicationBackendResult::SUCCESS){s.transaction.state_=CommunicationTransactionState::SUCCEEDED;s.transaction.result_=CommunicationResult::SUCCESS;s.busy=false;return CommunicationResult::SUCCESS;}
  if(br==CommunicationBackendResult::FAILED)return fail(s,CommunicationResult::BACKEND_FAILED);
- if(br==CommunicationBackendResult::CANCELLED){s.transaction.state_=CommunicationTransactionState::CANCELLED;s.transaction.result_=CommunicationResult::CANCELLED;s.busy=false;return CommunicationResult::SUCCESS;}
+ if(br==CommunicationBackendResult::CANCELLED){s.transaction.state_=CommunicationTransactionState::CANCELLED;s.transaction.result_=CommunicationResult::CANCELLED;s.busy=false;return CommunicationResult::CANCELLED;}
  return fail(s,CommunicationResult::INTERNAL_ERROR);
 }
 CommunicationMessageId CommunicationRuntime::consumeInboundMessageId()

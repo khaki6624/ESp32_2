@@ -36,6 +36,31 @@ class FakeSink final:public InboundMessageSink
 public:InboundMessageSinkResult configured=InboundMessageSinkResult::ACCEPTED;size_t calls=0U,length=0U;CommunicationMessageId id=0U;CommunicationBackendId backend=0U;CommunicationType type=CommunicationType::COUNT;char source[COMMUNICATION_MAX_ADDRESS_LENGTH]={};uint8_t data[COMMUNICATION_MAX_PAYLOAD_LENGTH]={};
  InboundMessageSinkResult onMessage(const CommunicationMessage& m)override{++calls;id=m.messageId();backend=m.backendId();type=m.communicationType();length=m.receivedLength();strcpy(source,m.address().c_str());memcpy(data,m.inboundPayload().data(),length);return configured;}
 };
+
+struct TwoBackendFixture
+{
+ FakeBackend first;
+ FakeBackend second;
+ CommunicationRegistry registry;
+ FakeSink sink;
+ uint8_t receiveData[16];
+ uint8_t firstPayload[3];
+ uint8_t secondPayload[3];
+ CommunicationRuntime runtime;
+
+ TwoBackendFixture():first(1U,CommunicationType::SMS),second(2U,CommunicationType::MQTT),
+  registry{},sink{},receiveData{},firstPayload{1U,2U,3U},secondPayload{4U,5U,6U},
+  runtime(registry,sink,CommunicationWritePayload(receiveData,sizeof(receiveData)))
+ {
+  registry.registerBackend(first);registry.registerBackend(second);runtime.begin();
+ }
+ CommunicationMessage firstMessage(CommunicationMessageId id=1U)
+ {return CommunicationMessage::outbound(id,1U,CommunicationType::SMS,address("sms/one"),CommunicationReadPayload(firstPayload,sizeof(firstPayload)));}
+ CommunicationMessage secondMessage(CommunicationMessageId id=2U)
+ {return CommunicationMessage::outbound(id,2U,CommunicationType::MQTT,address("mqtt/two"),CommunicationReadPayload(secondPayload,sizeof(secondPayload)));}
+ void sendBoth()
+ {assertResult(CommunicationResult::ACCEPTED,runtime.send(firstMessage()));assertResult(CommunicationResult::ACCEPTED,runtime.send(secondMessage()));}
+};
 }
 
 void test_address_payload_and_message_contracts()
@@ -103,7 +128,41 @@ void test_cancel_clear_and_multiple_runtime_instances()
  two.send(CommunicationMessage::outbound(1U,1U,CommunicationType::LOCAL,address("local"),CommunicationReadPayload(data,1U)));TEST_ASSERT_TRUE(two.isBackendBusy(1U));TEST_ASSERT_FALSE(one.isBackendBusy(1U));
 }
 
+void test_update_cancelled_result_priority_and_start_in_progress_policy()
+{
+ {
+  TwoBackendFixture f;f.first.startResult=CommunicationBackendResult::IN_PROGRESS;
+  assertResult(CommunicationResult::ACCEPTED,f.runtime.send(f.firstMessage(10U)));
+  const CommunicationTransaction* transaction=f.runtime.transaction(1U);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(CommunicationTransactionState::RUNNING),static_cast<uint8_t>(transaction->state()));
+  assertResult(CommunicationResult::IN_PROGRESS,transaction->result());TEST_ASSERT_TRUE(f.runtime.isBackendBusy(1U));
+ }
+ {
+  TwoBackendFixture f;f.first.addUpdate(CommunicationBackendResult::CANCELLED,0U);f.runtime.send(f.firstMessage());
+  assertResult(CommunicationResult::CANCELLED,f.runtime.update());const CommunicationTransaction* t=f.runtime.transaction(1U);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(CommunicationTransactionState::CANCELLED),static_cast<uint8_t>(t->state()));assertResult(CommunicationResult::CANCELLED,t->result());TEST_ASSERT_FALSE(f.runtime.isBackendBusy(1U));
+ }
+ {
+  TwoBackendFixture f;f.first.addUpdate(CommunicationBackendResult::CANCELLED,0U);f.second.addUpdate(CommunicationBackendResult::IN_PROGRESS,1U);f.sendBoth();assertResult(CommunicationResult::CANCELLED,f.runtime.update());
+ }
+ {
+  TwoBackendFixture f;f.first.addUpdate(CommunicationBackendResult::CANCELLED,0U);f.second.addUpdate(CommunicationBackendResult::RETRY_LATER,0U);f.sendBoth();assertResult(CommunicationResult::CANCELLED,f.runtime.update());
+ }
+ {
+  TwoBackendFixture f;f.first.addUpdate(CommunicationBackendResult::CANCELLED,0U);f.second.addUpdate(CommunicationBackendResult::SUCCESS,3U);f.sendBoth();assertResult(CommunicationResult::CANCELLED,f.runtime.update());
+ }
+ {
+  TwoBackendFixture f;const uint8_t rx[]={9U,0U,8U};f.first.addUpdate(CommunicationBackendResult::CANCELLED,0U);f.first.setReceive("source/rejected",rx,sizeof(rx));f.sink.configured=InboundMessageSinkResult::REJECTED;f.runtime.send(f.firstMessage());assertResult(CommunicationResult::SINK_REJECTED,f.runtime.update());
+ }
+ {
+  TwoBackendFixture f;f.first.addUpdate(CommunicationBackendResult::CANCELLED,0U);f.second.addUpdate(CommunicationBackendResult::FAILED,0U);f.sendBoth();assertResult(CommunicationResult::BACKEND_FAILED,f.runtime.update());
+ }
+ {
+  TwoBackendFixture f;f.first.addUpdate(CommunicationBackendResult::CANCELLED,0U);f.second.addUpdate(CommunicationBackendResult::ACCEPTED,0U);f.sendBoth();assertResult(CommunicationResult::INTERNAL_ERROR,f.runtime.update());
+ }
+}
+
 static_assert(std::is_base_of<CommunicationBackend,FakeBackend>::value,"backend contract");
 static_assert(std::is_base_of<InboundMessageSink,FakeSink>::value,"sink contract");
-void setup(){UNITY_BEGIN();RUN_TEST(test_address_payload_and_message_contracts);RUN_TEST(test_registry_registration_capacity_lock_and_independence);RUN_TEST(test_begin_all_backends_severity_lock_and_busy_rejection);RUN_TEST(test_send_mapping_length_validation_and_one_tx_per_backend);RUN_TEST(test_tx_update_progress_retry_success_and_fail_closed);RUN_TEST(test_rx_round_robin_delivery_validation_and_sink_policy);RUN_TEST(test_cancel_clear_and_multiple_runtime_instances);UNITY_END();}
+void setup(){UNITY_BEGIN();RUN_TEST(test_address_payload_and_message_contracts);RUN_TEST(test_registry_registration_capacity_lock_and_independence);RUN_TEST(test_begin_all_backends_severity_lock_and_busy_rejection);RUN_TEST(test_send_mapping_length_validation_and_one_tx_per_backend);RUN_TEST(test_tx_update_progress_retry_success_and_fail_closed);RUN_TEST(test_rx_round_robin_delivery_validation_and_sink_policy);RUN_TEST(test_cancel_clear_and_multiple_runtime_instances);RUN_TEST(test_update_cancelled_result_priority_and_start_in_progress_policy);UNITY_END();}
 void loop(){}
