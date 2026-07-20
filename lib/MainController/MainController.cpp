@@ -22,7 +22,10 @@ bool failure(MainControllerResult r){return r==MainControllerResult::DEGRADED||r
 bool fatal(MainControllerResult r){return r==MainControllerResult::COMPONENT_FAILED||r==MainControllerResult::INTERNAL_ERROR;}
 bool dependsOnConfiguration(MainControllerComponent c){return c==MainControllerComponent::COMMAND_EXECUTION||c==MainControllerComponent::SCHEDULER||c==MainControllerComponent::RULE||c==MainControllerComponent::SCENE;}
 bool dependsOnEvent(MainControllerComponent c){return c==MainControllerComponent::EVENT_TO_NOTIFICATION||c==MainControllerComponent::NODE_TO_EVENT||c==MainControllerComponent::COMMAND_TO_EVENT;}
-bool shouldSkipUpdate(MainControllerComponent c,bool configurationFatal,bool eventFatal){(void)eventFatal;return configurationFatal&&dependsOnConfiguration(c);}
+// Event failure does not block any active update-stage component.
+// Notification, Logger and Storage must continue draining prior work.
+// Event integration adapters are passive and are not polled here.
+bool shouldSkipUpdate(MainControllerComponent c,bool configurationFatal){return configurationFatal&&dependsOnConfiguration(c);}
 MainControllerResult normalizeBegin(MainControllerResult r){if(!isValidMainControllerResult(r))return MainControllerResult::INTERNAL_ERROR;if(r==MainControllerResult::INITIALIZATION_FAILED)return MainControllerResult::COMPONENT_FAILED;if(r==MainControllerResult::NOT_INITIALIZED||r==MainControllerResult::ALREADY_UPDATING||r==MainControllerResult::INVALID_ARGUMENT)return MainControllerResult::INTERNAL_ERROR;return r;}
 MainControllerResult normalizeUpdate(MainControllerResult r){if(!isValidMainControllerResult(r)||r==MainControllerResult::NOT_INITIALIZED||r==MainControllerResult::ALREADY_UPDATING||r==MainControllerResult::INVALID_ARGUMENT||r==MainControllerResult::INITIALIZATION_FAILED)return MainControllerResult::INTERNAL_ERROR;return r;}
 }
@@ -35,6 +38,7 @@ MainControllerResult MainController::begin(MainControllerTimestamp now)
  if(beginning_||updating_)return MainControllerResult::ALREADY_UPDATING;
  beginning_=true;
  degraded_=false;
+ if(dependencies_.requiredCount()==0U){initialized_=false;lastResult_=MainControllerResult::INITIALIZATION_FAILED;beginning_=false;return lastResult_;}
  if(componentCount_==0U){for(size_t i=0U;i<MAIN_CONTROLLER_COMPONENT_COUNT;++i)if(dependencies_.isRequired(static_cast<MainControllerComponent>(i)))recordBegin(static_cast<MainControllerComponent>(i),MainControllerResult::INITIALIZATION_FAILED);initialized_=false;degraded_=false;lastResult_=MainControllerResult::INITIALIZATION_FAILED;beginning_=false;return lastResult_;}
  bool criticalFailed=false,configurationFailed=false,eventFailed=false;MainControllerResult overall=MainControllerResult::SUCCESS;
  for(size_t i=0U;i<sizeof(BEGIN_ORDER)/sizeof(BEGIN_ORDER[0]);++i)
@@ -59,12 +63,12 @@ MainControllerResult MainController::update(MainControllerTimestamp now)
  if(!initialized_)return MainControllerResult::NOT_INITIALIZED;
  if(beginning_||updating_)return MainControllerResult::ALREADY_UPDATING;
  updating_=true;
- MainControllerResult overall=MainControllerResult::NO_CHANGE;bool configurationFatal=false,eventFatal=false;
+ MainControllerResult overall=MainControllerResult::NO_CHANGE;bool configurationFatal=false;
  for(size_t i=0U;i<sizeof(UPDATE_ORDER)/sizeof(UPDATE_ORDER[0]);++i)
  {
-  const MainControllerComponent c=UPDATE_ORDER[i];MainControllerComponentPort* p=dependencies_.get(c);if(p==nullptr||!p->hasUpdate()||shouldSkipUpdate(c,configurationFatal,eventFatal))continue;
+  const MainControllerComponent c=UPDATE_ORDER[i];MainControllerComponentPort* p=dependencies_.get(c);if(p==nullptr||!p->hasUpdate()||shouldSkipUpdate(c,configurationFatal))continue;
   const MainControllerResult r=normalizeUpdate(p->update(now));recordUpdate(c,r,now);overall=combine(overall,r);
-  if(fatal(r)){if(c==MainControllerComponent::CONFIGURATION)configurationFatal=true;if(c==MainControllerComponent::EVENT)eventFatal=true;}
+  if(fatal(r)&&c==MainControllerComponent::CONFIGURATION)configurationFatal=true;
  }
  mainControllerSaturatingIncrement(cycleCount_);degraded_=overall==MainControllerResult::DEGRADED||overall==MainControllerResult::COMPONENT_FAILED||overall==MainControllerResult::INTERNAL_ERROR;lastResult_=overall;updating_=false;return overall;
 }
