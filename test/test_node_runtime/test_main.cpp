@@ -44,5 +44,15 @@ void test_outbound_nonblocking_busy_cancel_and_priority()
 }
 void test_multiple_instances_are_independent(){NodeRuntimeRegistry a,b;a.registerNode(descriptor(1,"a"));b.registerNode(descriptor(2,"b"));FakeNodeMessageSink ia,ib;FakeNodeOutboundSink oa,ob;NodeRuntime ra(a,ia,oa),rb(b,ib,ob);ra.begin(1);rb.begin(2);online(ra,1,"a",3);TEST_ASSERT_TRUE(ra.isOnline(1));TEST_ASSERT_FALSE(rb.isOnline(2));TEST_ASSERT_NULL(rb.state(1));}
 
-void setup(){delay(2000);UNITY_BEGIN();RUN_TEST(test_address_descriptor_and_registry);RUN_TEST(test_inbound_timeout_recovery_and_wraparound);RUN_TEST(test_outbound_nonblocking_busy_cancel_and_priority);RUN_TEST(test_multiple_instances_are_independent);UNITY_END();}
+static void assert_timeout_with_outbound_result(NodeOutboundSinkResult outboundResult,NodeRuntimeResult expectedResult,bool expectedBusy)
+{
+ NodeRuntimeRegistry registry;registry.registerNode(descriptor(1,"node/timeout",true,50));FakeNodeMessageSink inbound;FakeNodeOutboundSink outbound;NodeRuntime runtime(registry,inbound,outbound);runtime.begin(0);online(runtime,1,"node/timeout",10);const uint8_t payload[]={0x55};outbound.sendResult=NodeOutboundSinkResult::ACCEPTED;TEST_ASSERT_EQUAL_UINT8((uint8_t)NodeRuntimeResult::ACCEPTED,(uint8_t)runtime.send(500,1,payload,sizeof(payload)));outbound.updateResult=outboundResult;TEST_ASSERT_EQUAL_UINT8((uint8_t)expectedResult,(uint8_t)runtime.update(60));TEST_ASSERT_EQUAL_UINT8((uint8_t)expectedResult,(uint8_t)runtime.state(1)->lastResult());TEST_ASSERT_EQUAL(expectedBusy,runtime.isBusy(1));if(!expectedBusy)TEST_ASSERT_EQUAL_UINT32(0,runtime.state(1)->activeOutboundMessageId());
+}
+void test_timeout_and_success_preserves_timeout_result(){assert_timeout_with_outbound_result(NodeOutboundSinkResult::SUCCESS,NodeRuntimeResult::TIMEOUT,false);}
+void test_timeout_and_in_progress_preserves_timeout_result(){assert_timeout_with_outbound_result(NodeOutboundSinkResult::IN_PROGRESS,NodeRuntimeResult::TIMEOUT,true);}
+void test_timeout_and_retry_later_preserves_timeout_result(){assert_timeout_with_outbound_result(NodeOutboundSinkResult::RETRY_LATER,NodeRuntimeResult::TIMEOUT,true);}
+void test_timeout_and_sink_rejected_uses_sink_rejected(){assert_timeout_with_outbound_result(NodeOutboundSinkResult::REJECTED,NodeRuntimeResult::SINK_REJECTED,false);}
+void test_timeout_and_internal_error_uses_internal_error(){assert_timeout_with_outbound_result(NodeOutboundSinkResult::FAILED,NodeRuntimeResult::INTERNAL_ERROR,false);}
+
+void setup(){delay(2000);UNITY_BEGIN();RUN_TEST(test_address_descriptor_and_registry);RUN_TEST(test_inbound_timeout_recovery_and_wraparound);RUN_TEST(test_outbound_nonblocking_busy_cancel_and_priority);RUN_TEST(test_multiple_instances_are_independent);RUN_TEST(test_timeout_and_success_preserves_timeout_result);RUN_TEST(test_timeout_and_in_progress_preserves_timeout_result);RUN_TEST(test_timeout_and_retry_later_preserves_timeout_result);RUN_TEST(test_timeout_and_sink_rejected_uses_sink_rejected);RUN_TEST(test_timeout_and_internal_error_uses_internal_error);UNITY_END();}
 void loop(){}
