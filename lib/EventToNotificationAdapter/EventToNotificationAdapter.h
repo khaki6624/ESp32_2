@@ -5,7 +5,9 @@
 #include <EventNotificationRegistry.h>
 #include <NotificationRuntime.h>
 class EventToNotificationAdapterTestAccess;
+// onEvent() is the only notification path because it receives current time.
+// EventHandler::handle() has no current-time contract and therefore fails closed.
 class EventToNotificationAdapter final:public EventHandler
 {public:EventToNotificationAdapter(EventNotificationRegistry&,EventNotificationFormatter&,NotificationRuntime&);RuntimeIntegrationResult begin();bool isInitialized()const;RuntimeIntegrationResult onEvent(const Event&,NotificationTimestamp);EventHandleResult handle(const Event&)override;uint32_t forwardedCount()const;uint32_t ignoredCount()const;uint32_t failedCount()const;NotificationId nextNotificationId()const;RuntimeIntegrationResult lastResult()const;
-private:friend class EventToNotificationAdapterTestAccess;EventNotificationRegistry& registry_;EventNotificationFormatter& formatter_;NotificationRuntime& runtime_;uint8_t payload_[NOTIFICATION_RUNTIME_MAX_PAYLOAD_LENGTH];NotificationId nextId_;uint32_t forwarded_;uint32_t ignored_;uint32_t failed_;RuntimeIntegrationResult last_;bool initialized_;NotificationId consumeId();RuntimeIntegrationResult finish(RuntimeIntegrationResult);static RuntimeIntegrationResult mapRuntimeResult(NotificationRuntimeResult);};
+private:friend class EventToNotificationAdapterTestAccess;EventNotificationRegistry& registry_;EventNotificationFormatter& formatter_;NotificationRuntime& runtime_;uint8_t payload_[NOTIFICATION_RUNTIME_MAX_PAYLOAD_LENGTH];NotificationId nextId_;uint32_t forwarded_;uint32_t ignored_;uint32_t failed_;RuntimeIntegrationResult last_;bool initialized_;void advanceNotificationId();RuntimeIntegrationResult finish(RuntimeIntegrationResult);static RuntimeIntegrationResult mapRuntimeResult(NotificationRuntimeResult);};
 #endif
