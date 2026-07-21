@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#ifdef LOW
+#undef LOW
+#endif
 #include <CommandExecutor.h>
 #include <CompositeCommandExecutionGate.h>
 #include <unity.h>

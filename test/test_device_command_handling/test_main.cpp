@@ -5,6 +5,9 @@
 #include <RelayOutputAdapter.h>
 #include <StaticDriverBindingResolver.h>
 #include <Arduino.h>
+#ifdef SERIAL
+#undef SERIAL
+#endif
 #include <unity.h>
 
 namespace

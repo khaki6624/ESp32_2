@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#ifdef INPUT
+#undef INPUT
+#endif
 #include <unity.h>
 
 #include <AnalogInputAdapter.h>

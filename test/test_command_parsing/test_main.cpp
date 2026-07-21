@@ -3,6 +3,9 @@
 #include <CommandValidator.h>
 #include <DurationParser.h>
 #include <Arduino.h>
+#ifdef SERIAL
+#undef SERIAL
+#endif
 #include <unity.h>
 static CommandParser parserValue;static CommandValidator validatorValue;static DurationParser durationValue;
 static RequestContext requestValue(){RequestContext r;r.requestId=7U;r.source=CommandSource::SERIAL;return r;}

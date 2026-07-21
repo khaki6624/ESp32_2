@@ -1,4 +1,7 @@
 #include <Arduino.h>
+#ifdef INPUT
+#undef INPUT
+#endif
 #include <ConditionEvaluator.h>
 #include <RuleEngine.h>
 #include <type_traits>
