@@ -1,3 +1,14 @@
+#include <EventDispatcher.h>
+#include <EventNotificationFormatter.h>
+#include <EventNotificationRegistry.h>
+#include <EventQueue.h>
+#include <EventRuntimeControllerPort.h>
+#include <EventToNotificationAdapter.h>
+#include <EventToNotificationBridge.h>
+#include <EventToNotificationDispatchBinding.h>
+#include <MainController.h>
+#include <NotificationRegistry.h>
+#include <NotificationRuntime.h>
 #include <Arduino.h>
 #include <IRCommon.h>
 #include <IRReceiver.h>
@@ -29,6 +40,64 @@ constexpr uint32_t READY_BLINK_MS = 800;
 // روی اغلب ESP32 DevKitها، LED داخلی با HIGH روشن می‌شود.
 // اگر روی برد تو برعکس بود، مقدار را true کن.
 constexpr bool STATUS_LED_ACTIVE_LOW = false;
+
+namespace RuntimeComposition
+{
+class ProductionEventNotificationFormatter final : public EventNotificationFormatter
+{
+public:
+    EventNotificationFormatResult format(
+        const Event& event,
+        uint8_t* output,
+        size_t capacity,
+        size_t& length) override
+    {
+        if (!event.isValid()) return EventNotificationFormatResult::INVALID_EVENT;
+        if (output == nullptr || capacity < 1U)
+            return EventNotificationFormatResult::BUFFER_TOO_SMALL;
+        output[0] = static_cast<uint8_t>(event.type);
+        length = 1U;
+        return EventNotificationFormatResult::SUCCESS;
+    }
+};
+
+NotificationRegistry notificationRegistry;
+NotificationRuntime notificationRuntime(notificationRegistry);
+ProductionEventNotificationFormatter notificationFormatter;
+EventNotificationRegistry eventNotificationRegistry;
+
+EventQueue eventQueue;
+EventDispatcher eventDispatcher(eventQueue);
+EventToNotificationAdapter eventToNotificationAdapter(
+    eventNotificationRegistry,
+    notificationFormatter,
+    notificationRuntime);
+EventToNotificationBridge eventToNotificationBridge(eventToNotificationAdapter);
+EventToNotificationDispatchBinding eventDispatchBinding(
+    eventQueue,
+    eventDispatcher,
+    eventToNotificationBridge);
+EventRuntimeControllerPort eventRuntimePort(eventDispatchBinding);
+
+MainControllerDependencies makeMainControllerDependencies()
+{
+    MainControllerDependencies dependencies;
+    dependencies.set(eventRuntimePort);
+    dependencies.require(MainControllerComponent::EVENT);
+    return dependencies;
+}
+
+MainControllerDependencies mainControllerDependencies =
+    makeMainControllerDependencies();
+MainController mainController(mainControllerDependencies);
+
+bool configure()
+{
+    return notificationRuntime.begin() == NotificationRuntimeResult::SUCCESS &&
+        eventToNotificationAdapter.begin() == RuntimeIntegrationResult::SUCCESS &&
+        mainController.begin(millis()) == MainControllerResult::SUCCESS;
+}
+}
 
 IRReceiver receiver(Pins::IR_RECEIVER);
 IRSender sender(Pins::IR_SENDER);
@@ -277,6 +346,11 @@ void setup()
     receiver.begin();
     sender.begin();
 
+    if (!RuntimeComposition::configure())
+    {
+        Serial.println("Runtime Integration initialization failed.");
+    }
+
     Serial.println();
     Serial.println("========== DELSAM IR TEST ==========");
     Serial.print("Status LED GPIO: ");
@@ -286,6 +360,8 @@ void setup()
 
 void loop()
 {
+    RuntimeComposition::mainController.update(millis());
+
     updateButton();
     updateStatusLed();
 
