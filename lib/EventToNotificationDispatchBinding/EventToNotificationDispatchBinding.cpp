@@ -99,22 +99,49 @@ RuntimeIntegrationResult EventToNotificationDispatchBinding::combineDispatchResu
     RuntimeIntegrationResult current,
     RuntimeIntegrationResult candidate)
 {
-    if (current == RuntimeIntegrationResult::INTERNAL_ERROR ||
-        candidate == RuntimeIntegrationResult::INTERNAL_ERROR)
+    if (!isValidRuntimeIntegrationResult(current) ||
+        !isValidRuntimeIntegrationResult(candidate))
         return RuntimeIntegrationResult::INTERNAL_ERROR;
-    if (current == RuntimeIntegrationResult::FAILED ||
-        candidate == RuntimeIntegrationResult::FAILED)
-        return RuntimeIntegrationResult::FAILED;
-    if (current == RuntimeIntegrationResult::REJECTED ||
-        candidate == RuntimeIntegrationResult::REJECTED)
-        return RuntimeIntegrationResult::REJECTED;
-    if (current == RuntimeIntegrationResult::SUCCESS ||
-        candidate == RuntimeIntegrationResult::SUCCESS)
-        return RuntimeIntegrationResult::SUCCESS;
-    if (current == RuntimeIntegrationResult::IGNORED ||
-        candidate == RuntimeIntegrationResult::IGNORED)
-        return RuntimeIntegrationResult::IGNORED;
-    return candidate;
+    return dispatchPriority(candidate) > dispatchPriority(current)
+        ? candidate : current;
+}
+
+uint8_t EventToNotificationDispatchBinding::dispatchPriority(
+    RuntimeIntegrationResult result)
+{
+    switch (result)
+    {
+        case RuntimeIntegrationResult::INTERNAL_ERROR:
+        case RuntimeIntegrationResult::COUNT:
+            return 9U;
+        case RuntimeIntegrationResult::FAILED:
+        case RuntimeIntegrationResult::NOT_INITIALIZED:
+        case RuntimeIntegrationResult::INVALID_ARGUMENT:
+        case RuntimeIntegrationResult::INVALID_INPUT:
+        case RuntimeIntegrationResult::MAPPING_NOT_FOUND:
+        case RuntimeIntegrationResult::REGISTRY_FULL:
+        case RuntimeIntegrationResult::REGISTRY_LOCKED:
+        case RuntimeIntegrationResult::DUPLICATE_MAPPING:
+            return 8U;
+        case RuntimeIntegrationResult::REJECTED:
+            return 7U;
+        case RuntimeIntegrationResult::RETRY_LATER:
+            return 6U;
+        case RuntimeIntegrationResult::IN_PROGRESS:
+            return 5U;
+        case RuntimeIntegrationResult::ACCEPTED:
+            return 4U;
+        case RuntimeIntegrationResult::SUCCESS:
+            return 3U;
+        case RuntimeIntegrationResult::IGNORED:
+        case RuntimeIntegrationResult::FILTERED:
+        case RuntimeIntegrationResult::MAPPING_DISABLED:
+            return 2U;
+        case RuntimeIntegrationResult::NO_CHANGE:
+            return 1U;
+        default:
+            return 9U;
+    }
 }
 
 RuntimeIntegrationResult EventToNotificationDispatchBinding::dispatchEvents(
@@ -124,6 +151,9 @@ RuntimeIntegrationResult EventToNotificationDispatchBinding::dispatchEvents(
     if (beginResult != RuntimeIntegrationResult::SUCCESS) return beginResult;
 
     RuntimeIntegrationResult overall = RuntimeIntegrationResult::NO_CHANGE;
+    // Snapshot dispatch policy:
+    // only events present at cycle start are processed.
+    // Events published by handlers are deferred to the next controller cycle.
     const size_t eventCount = queue_.size();
     for (size_t index = 0U; index < eventCount; ++index)
     {
