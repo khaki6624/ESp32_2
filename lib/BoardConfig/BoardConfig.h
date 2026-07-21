@@ -98,8 +98,8 @@ constexpr uint8_t SOIL_MOISTURE_ADC_INDEX = 0;
         {21, true},
         {19, true},
         {18, true},
-        {17, true},
-        {16, true},
+        {INVALID_PIN, true},
+        {INVALID_PIN, true},
         {15, true},
 
         {14, true},

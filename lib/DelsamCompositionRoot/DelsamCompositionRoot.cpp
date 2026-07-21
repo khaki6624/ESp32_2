@@ -40,7 +40,7 @@ struct RelaySlot
 };
 
 RelaySlot relaySlots[] = {
-    {23U,true},{22U,true},{21U,true},{19U,true},{18U,true},{17U,true},{16U,true},{15U,true},
+    {23U,true},{22U,true},{21U,true},{19U,true},{18U,true},{15U,true},
     {14U,true},{13U,true},{12U,true},{27U,true},{26U,true},
     // GPIO25 is reserved for the Service Button and is intentionally not instantiated.
     {33U,true},{32U,true}
@@ -294,6 +294,7 @@ bool DelsamCompositionRoot::begin(uint32_t nowMs)
         BoardConfig::analogInputs[0].scaleMax);
     irReceiver.begin();
     irSender.begin();
+    Serial2.begin(9600, SERIAL_8N1, 16, 17);
     ready = configureDevices();
     printStartupReport();
     if (!ready) Serial.println("Composition Root     FAILED");
